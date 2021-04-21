@@ -48,6 +48,16 @@ from MAB import gener_random_revenue, ucb, mab_experiment_ucb
 utility_dict = {"a": 462, "b": 0, "c": 0, "d": 0}
 selections_dict = {"a": 28, "b": 0, "c": 0, "d": 0}
 print(ucb(utility_dict, selections_dict))
+explore_coefficient = 2
+rewards = np.fromiter(utility_dict.values(), dtype=float) / (np.fromiter(selections_dict.values(), dtype=float)
+                                                             + 1e-05)
+selections = np.fromiter(selections_dict.values(), dtype=float)
+if sum(selections) != 0:
+  sel_sum_log = np.log(sum(selections))
+else:
+  sel_sum_log = 0
+n_action = int(np.argmax(
+  rewards + explore_coefficient * np.sqrt(sel_sum_log / (  + 1e-5))))
 
 import json
 with open('revenue_dict_6.json') as f:
