@@ -1,3 +1,5 @@
+from google.colab import drive
+drive.mount('/content/drive')
 # %cd "/content/drive/"    # Change directory to the location defined in project_path
 # !git clone "https://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@github.com/iakubovskii7/MAB.git" # clone the github repository
 
