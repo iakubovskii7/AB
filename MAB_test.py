@@ -1,8 +1,9 @@
 import numpy as np
+import os
+import path
 import pandas as pd
 import slots
 import matplotlib.pyplot as plt
-import os
 
 os.chdir("/Users/iakubovskii/AppBooster/Base/AB_testing/")
 # import seaborn as sns
@@ -64,9 +65,6 @@ with open('revenue_dict_6.json') as f:
   revenue_dict_6 = json.load(f)
 with open('revenue_dict_7.json') as f:
   revenue_dict_7 = json.load(f)
-
-
-
 
 {key: sum(values) for key, values in revenue_dict_6.items()}
 utility_dict_6 = {key: 0 for key in revenue_dict_6.keys()}

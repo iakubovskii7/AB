@@ -9,3 +9,4 @@ mabwiser==1.11.1
 scikit-learn==0.24.1
 threadpoolctl==2.1.0
 bootstrapped==0.0.2
+path==15.1.2

@@ -5,7 +5,7 @@ import bootstrapped.bootstrap as bs
 import bootstrapped.stats_functions as bs_stats
 import re
 import numpy as np
-import pandas as pd
+
 
 
 def gener_random_revenue(revenue_values: List):
@@ -78,49 +78,6 @@ def ucb_bootstrapped(revenue_dict: Dict[str, list]
     n_action = int(np.argmax(mean_revenue + upper_bounds))
     return [*revenue_dict.keys()][n_action]
 
-def mab_experiment_ucb_bootstrap(revenue_dict_mab: Dict[str, int],
-                       iterations: int) -> pd.DataFrame:
-    """
-    :param revenue_dict_mab: historical revenue for every arm to extract random values
-    :param iterations: number of iteration for MAB experiment
-    :return: data frame with cumulative revenue for every iteration for every arm
-    """
-    utility_dict_mab = {key: 0 for key in revenue_dict_mab.keys()}
-    selections_dict_mab = {key: 0 for key in revenue_dict_mab.keys()}
-    revenue_experiment = np.zeros((iterations, 2))
-    for i in range(iterations):
-        n_action = ucb_bootstrapped(revenue_experiment, selections_dict_mab)
-        selections_dict_mab[n_action] += 1
-        revenue_iter = gener_random_revenue(revenue_dict_mab[n_action])[0]
-        utility_dict_mab[n_action] += revenue_iter
-        revenue_experiment[i, 0] = n_action
-        revenue_experiment[i, 1] = revenue_iter
-    summarize_df = pd.DataFrame(revenue_experiment)
-    summarize_df['iter'] = summarize_df.index
-    reslts = summarize_df.pivot_table(index='iter', columns=0, values=1).cumsum().fillna(method="ffill")
-    return reslts
-
-def mab_experiment_ucb(revenue_dict_mab: Dict[str, int],
-                       iterations: int) -> pd.DataFrame:
-    """
-    :param revenue_dict_mab: historical revenue for every arm to extract random values
-    :param iterations: number of iteration for MAB experiment
-    :return: data frame with cumulative revenue for every iteration for every arm
-    """
-    utility_dict_mab = {key: 0 for key in revenue_dict_mab.keys()}
-    selections_dict_mab = {key: 0 for key in revenue_dict_mab.keys()}
-    revenue_experiment = np.zeros((iterations, 2))
-    for i in range(iterations):
-        n_action = ucb(utility_dict_mab, selections_dict_mab)
-        selections_dict_mab[n_action] += 1
-        revenue_iter = gener_random_revenue(revenue_dict_mab[n_action])[0]
-        utility_dict_mab[n_action] += revenue_iter
-        revenue_experiment[i, 0] = n_action
-        revenue_experiment[i, 1] = revenue_iter
-    summarize_df = pd.DataFrame(revenue_experiment)
-    summarize_df['iter'] = summarize_df.index
-    reslts = summarize_df.pivot_table(index='iter', columns=0, values=1).cumsum().fillna(method="ffill")
-    return reslts
 # An example that shows how to use the UCB1 learning policy
 # to make decisions between two arms based on their expected rewards.
 
