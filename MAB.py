@@ -1,12 +1,12 @@
+import re
 from collections import Counter
 from random import choices
 from typing import List, Dict
+
 import bootstrapped.bootstrap as bs
 import bootstrapped.stats_functions as bs_stats
-import re
 import numpy as np
-
-
+from bootstrapped_ways import bootstrap_jit_parallel
 
 def gener_random_revenue(revenue_values: List):
     """
@@ -62,41 +62,24 @@ def get_bootstrap_upper_bound(revenues: np.array) -> float:
     upper_conf = float(conf_int.strip(")").split(", ")[1])
     return(upper_conf)
 
-def ucb_bootstrapped(revenue_dict: Dict[str, list]
-        ) -> str:
+
+def ucb_bootstrapped(revenue_dict: Dict[str, np.array],
+                     n_boots: int
+                     ) -> str:
     """
     Upper Confidence Bounds with Bootstapped Upper Bounds
-    :param revenue_dict: keys - handles, values - historical list of revenues
+    :param revenue_dict: keys - handles, values - historical numpy array of revenues
 
     :return: action;
     """
-    mean_revenue = np.fromiter(list(map(np.mean, revenue_dict.values())), dtype=float)
-    # Find upper bounds with bootstrapped samples
-    upper_bounds = list(map(lambda x: get_bootstrap_upper_bound(x),
-                            list(map(np.array, revenue_dict.values()))))
 
-    n_action = int(np.argmax(mean_revenue + upper_bounds))
+    # Find upper bounds with bootstrapped samples
+    upper_bounds = list(map(bootstrap_jit_parallel, revenue_dict.values(),
+                            [n_boots]*len(revenue_dict.keys())))
+
+    n_action = int(np.argmax(upper_bounds))
     return [*revenue_dict.keys()][n_action]
 
-# An example that shows how to use the UCB1 learning policy
-# to make decisions between two arms based on their expected rewards.
-
-# # Import MABWiser Library
-# from mabwiser.mab import MAB, LearningPolicy, NeighborhoodPolicy
-#
-# # Data
-# arms = ['Arm1', 'Arm2']
-# decisions = ['Arm1', 'Arm1', 'Arm2', 'Arm1']
-# rewards = [20, 17, 25, 9]
-#
-# # Model
-# mab = MAB(arms, LearningPolicy.UCB1(alpha=1.25))
-#
-# # Train
-# mab.fit(decisions, rewards)
-#
-# # Test
-# mab.predict()
 
 
 
