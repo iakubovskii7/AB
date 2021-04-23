@@ -16,4 +16,8 @@ class Solver(object):
         self.bandit = bandit
 
         self.counts = [0] * self.bandit.n
-        
+        self.action = []  # List of machine ids, o to bandits n-1
+        self.regret = 0. # Cumulative regret
+        self.regrets = [0.]  # History of cumulative regrets
+
+
