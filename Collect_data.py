@@ -12,7 +12,6 @@
 
 # Эксперимет в столбце paywallVariations, группы просто по номерам))
 # В столбце со словами total spend — доход от юзера
-<<<<<<< HEAD
 
 from typing import List, Set, Dict, Tuple, Optional
 import os
@@ -70,13 +69,29 @@ def clickhouse(query, clickhouse_query) -> pd.DataFrame:
         result_df[col_data['name']] = result_df[col_data['name']].apply(col_type_converter)
     return result_df
 
+def clickhouse_transform_pandas(result) -> pd.DataFrame:
+    """
+    Process query pandas to dataframe
+    :param query:
+    :param clickhouse_query:
+    :return:
+    """
+    result_df = pd.DataFrame.from_records(result['data'])
+
+    type_converters = {'UInt8': np.uint8, 'UInt16': np.uint16, 'UInt32': np.uint32, 'UInt64': np.uint64,
+                       'Int8': np.int8, 'Int16': np.int16, 'Int32': np.int32, 'Int64': np.int64,
+                       'Float32': np.float32, 'Float64': np.float64,
+                       'Date': pd.to_datetime, 'DateTime': pd.to_datetime}
+
+    for col_data in result['meta']:
+        col_type_converter = type_converters.get(col_data['type'], str)
+        result_df[col_data['name']] = result_df[col_data['name']].apply(col_type_converter)
+    return result_df
+
 # ab_test_df = pd.read_csv("Data/Sweet_sex_datimg_AB.csv")
-
-=======
-
 def write_json(data, path):
     with open(path, "w") as f:
-    json.dump(data, f)
+        json.dump(data, f)
 def mergeDict(dict1, dict2):
     ''' Merge dictionaries and keep values of common keys in list'''
     dict3 = {**dict1, **dict2}
@@ -134,7 +149,6 @@ def mergeDict(dict1, dict2):
 #     json.dump(revenue_dict_6, f)
 # with open('revenue_dict_7.json', 'w') as f:
 #     json.dump(revenue_dict_7, f)
->>>>>>> 2c19df7c1f325c3a56654f1ee445d50541168421
 
 
 
