@@ -56,9 +56,3 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Documentation
-docsrc/_build/
