@@ -61,24 +61,31 @@ def non_param_tests(df: pd.DataFrame, alpha=0.05):
     :param kwargs: series of data with commas as delimiter
     :return: there were difference or nor
     """
+    global stat
+    global p
     if df.shape[1] == 2:
         # Use Mann-Whitney
-        stat_mu, p = mannwhitneyu(df.iloc[:, 0], df.iloc[:, 1])
-        print('stat=%.3f, p=%.3f' % (stat_mu, p))
+        stat, p = mannwhitneyu(df.iloc[:, 0], df.iloc[:, 1])
+        print('stat=%.3f, p=%.3f' % (stat, p))
         if p > alpha:
-            print('Согласно тесту Манна-Уитни распределения одинаковы')
+            print(f'Mann-Whitney test concludes: medians of two samples are IDENTICAL on {alpha} significance')
         else:
-            print('Согласно тесту Манна-Уитни Распределения различны')
+            print(f'Mann-Whitney test concludes: medians of two samples are NOT IDENTICAL on {alpha} significance')
     else:
-        # FWER — family-wise error rate
-        alpha_fwer = alpha / df.shape[1]
         for col in df.columns:
             locals()['data_' + col] = df[col].dropna().values
         datas = " , ".join('data_' + col for col in df.columns)
-        exec(f'''locals()['stat_kru'], locals()['p_kru'] = kruskal({datas})''')
-        print('stat=%.3f, p=%.3f' % (locals()['stat_kru'], locals()['p_kru']))
-        if locals()['p_kru'] > alpha_fwer:
-            print(f'Согласно тесту Крускала распределения одинаковы на общем уровне значимости {} поправкой Холма-Бонферрони')
+        exec(f'''globals()['stat'], globals()['p'] = kruskal({datas})''')
+        print('stat=%.3f, p=%.3f' % (globals()['stat'], globals()['p']))
+        if globals()['p'] > alpha:
+            print(f'Kruskal test concludes: medians of few samples are IDENTICAL on {alpha} significance')
         else:
-            print('Согласно тесту Крускала распределения различны с поправкой Холма-Бонферрони')
-    return (locals()['stat_kru'], locals()['p_kru'])
+            print(f'Kruskal test concludes: medians of few samples are NOT IDENTICAL on {alpha} significance')
+    stat_final = globals()['stat']
+    p_final = globals()['p']
+    del stat
+    del p
+    return stat_final, p_final
+
+# FWER — family-wise error rate
+

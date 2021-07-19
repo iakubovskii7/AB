@@ -4,6 +4,10 @@ import path
 import pandas as pd
 import slots
 import matplotlib.pyplot as plt
+import json
+from MAB import (gener_random_revenue, ucb,
+                 BernoulliBandit, ThompsonSamplingAgent, EpsilonGreedyAgent, UCBAgent,
+                 get_regret, plot_regret)
 # An example that shows how to use the UCB1 learning policy
 # to make decisions between two arms based on their expected rewards.
 
@@ -23,8 +27,6 @@ import matplotlib.pyplot as plt
 #
 # # Test
 # mab.predict()
-
-os.chdir("/Users/iakubovskii/AppBooster/Base/AB_testing/")
 # import seaborn as sns
 
 # strategies = [{'strategy': 'eps_greedy', 'regret': [],
@@ -63,42 +65,45 @@ os.chdir("/Users/iakubovskii/AppBooster/Base/AB_testing/")
 # plt.title('Multi-armed bandit strategy performance (slots)')
 # plt.ylim(0,0.2);
 
-# UCB
-from MAB import gener_random_revenue, ucb, mab_experiment_ucb
-utility_dict = {"a": 462, "b": 0, "c": 0, "d": 0}
-selections_dict = {"a": 28, "b": 0, "c": 0, "d": 0}
-print(ucb(utility_dict, selections_dict))
-explore_coefficient = 2
-rewards = np.fromiter(utility_dict.values(), dtype=float) / (np.fromiter(selections_dict.values(), dtype=float)
-                                                             + 1e-05)
-selections = np.fromiter(selections_dict.values(), dtype=float)
-if sum(selections) != 0:
-  sel_sum_log = np.log(sum(selections))
-else:
-  sel_sum_log = 0
-n_action = int(np.argmax(
-  rewards + explore_coefficient * np.sqrt(sel_sum_log / (  + 1e-5))))
+# UCB classic
 
-import json
-with open('revenue_dict_6.json') as f:
-  revenue_dict_6 = json.load(f)
-with open('revenue_dict_7.json') as f:
-  revenue_dict_7 = json.load(f)
+# utility_dict = {"a": 462, "b": 0, "c": 0, "d": 0}
+# selections_dict = {"a": 28, "b": 0, "c": 0, "d": 0}
+# print(ucb(utility_dict, selections_dict))
 
-{key: sum(values) for key, values in revenue_dict_6.items()}
-utility_dict_6 = {key: 0 for key in revenue_dict_6.keys()}
-selections_dict_6 = {key: 0 for key in revenue_dict_6.keys()}
-revenue_experiment = np.zeros((10**4, 2))
+# UCB bootstrapped
+#
+# with open('revenue_dict_6.json') as f:
+#   revenue_dict_6 = json.load(f)
+# with open('revenue_dict_7.json') as f:
+#   revenue_dict_7 = json.load(f)
+#
+# {key: sum(values) for key, values in revenue_dict_6.items()}
+# utility_dict_6 = {key: 0 for key in revenue_dict_6.keys()}
+# selections_dict_6 = {key: 0 for key in revenue_dict_6.keys()}
+# revenue_experiment = np.zeros((10**4, 2))
+#
+# for i in range(10000):
+#   n_action = ucb(utility_dict_6, selections_dict_6)
+#   selections_dict_6[n_action] += 1
+#   revenue_iter = gener_random_revenue(revenue_dict_6[n_action])[0]
+#   utility_dict_6[n_action] += revenue_iter
+#   revenue_experiment[i, 0] = n_action
+#   revenue_experiment[i, 1] = revenue_iter
+# df = pd.DataFrame(revenue_experiment)
+# df['iter'] = df.index
+# reslts = df.pivot_table(index = 'iter', columns = 0, values = 1).cumsum().fillna(method = "ffill")
+# reslts.plot()
 
-for i in range(10000):
-  n_action = ucb(utility_dict_6, selections_dict_6)
-  selections_dict_6[n_action] += 1
-  revenue_iter = gener_random_revenue(revenue_dict_6[n_action])[0]
-  utility_dict_6[n_action] += revenue_iter
-  revenue_experiment[i, 0] = n_action
-  revenue_experiment[i, 1] = revenue_iter
-df = pd.DataFrame(revenue_experiment)
-df['iter'] = df.index
-reslts = df.pivot_table(index = 'iter', columns = 0, values = 1).cumsum().fillna(method = "ffill")
-reslts.plot()
+# Uncomment agents
+agents = [
+     EpsilonGreedyAgent(),
+     UCBAgent(),
+     ThompsonSamplingAgent()
+]
+
+regret = get_regret(BernoulliBandit(), agents, n_steps=10000, n_trials=1)
+plot_regret(agents, regret)
+
+
 
