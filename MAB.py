@@ -141,10 +141,11 @@ class AbstractAgent(metaclass=ABCMeta):
         :type reward: int
         """
         self._total_pulls += 1
+        amount_of_success = int(np.random.random() * 100)
         if reward == 1:
-            self._successes[action] += 1
+            self._successes[action] += amount_of_success
         else:
-            self._failures[action] += 1
+            self._failures[action] += 100 - amount_of_success
 
     @property
     def name(self):

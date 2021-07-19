@@ -102,8 +102,10 @@ agents = [
      ThompsonSamplingAgent()
 ]
 
-regret = get_regret(BernoulliBandit(), agents, n_steps=10000, n_trials=1)
+regret = get_regret(BernoulliBandit(), agents, n_steps=10000, n_trials=60)
 plot_regret(agents, regret)
+
+
 
 
 
