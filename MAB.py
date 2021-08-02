@@ -91,8 +91,8 @@ def ucb_bootstrapped(revenue_dict: Dict[str, np.array],
 
 
 class BernoulliBandit:
-    def __init__(self, n_actions=5):
-        self._probs = np.random.random(n_actions)
+    def __init__(self, arms=2):
+        self._probs = np.random.random(arms)
 
     @property
     def action_count(self):
@@ -122,9 +122,9 @@ class BernoulliBandit:
 
 
 class AbstractAgent(metaclass=ABCMeta):
-    def init_actions(self, n_actions):
-        self._successes = np.zeros(n_actions)
-        self._failures = np.zeros(n_actions)
+    def init_actions(self, arms):
+        self._successes = np.zeros(arms)
+        self._failures = np.zeros(arms)
         self._total_pulls = 0
 
     @abstractmethod
@@ -200,46 +200,151 @@ class ThompsonSamplingAgent(AbstractAgent):
         return self.__class__.__name__
 
 
-def get_regret(env, agents, n_steps=5000, n_trials=50):
-    scores = OrderedDict({
+class BernoulliBanditData:
+    def __init__(self, experiment_df, n_chunks=100, arms=2):
+        # self._probs = np.random.random(arms)
+        self._experiment_df = experiment_df
+        self._n_chunks = n_chunks
+        self._n_actions = arms
+
+    @property
+    def action_count(self):
+        return len(self._experiment_df.keys())
+
+    def pull(self, action, iter):
+        return self._experiment_df[action][iter*50 : (iter+1)*50]
+
+    def optimal_reward(self, iter):
+        """
+        Used for regret calculation
+        """
+        all_rewards_iter = np.array([np.sum(self._experiment_df[i][iter * self._n_chunks : (iter+1) * self._n_chunks])
+                                    for i in range(len(self._experiment_df.keys()))
+                                    ])
+        return np.max(all_rewards_iter)
+
+    def step(self):
+        """
+        used in non-stationary version
+        """
+        pass
+
+    def reset(self):
+        """Used in non-stationary version
+        """
+
+
+class AbstractAgentData(metaclass=ABCMeta):
+    """
+    Get action based on input data
+    """
+    def init_actions(self, arms):
+        self._successes = np.zeros(arms)
+        self._failures = np.zeros(arms)
+        self._total_pulls = 0
+
+    @abstractmethod
+    def get_action(self):
+        """
+        Get current best action
+        :rtype: int
+        """
+        pass
+
+    def update(self, action, reward):
+        """
+        Observe reward from action and update agent's internal parameters
+        :type action: int
+        :type reward: list of rewards !
+        """
+        self._total_pulls += len(reward)
+        amount_of_success = np.count_nonzero(reward)
+        self._successes[action] += amount_of_success
+        self._failures[action] += len(reward) - np.count_nonzero(reward)
+
+    @property
+    def name(self):
+        return self.__class__.__name__
+
+
+class ThompsonSamplingAgentData(AbstractAgentData):
+    def get_action(self):
+        """
+        :eps = 1e-12
+        :weights: np.zeros_like(self._successes) - not TS
+        :weights: np.random.beta(self._successes + eps, self._failures + eps)
+        :return: arm
+        """
+        theta = np.random.beta(self._successes+1, self._failures+1)
+        return np.argmax(theta)
+    @property
+    def name(self):
+        return self.__class__.__name__
+
+
+def get_results(env, agents, n_steps=5000, n_trials=50):
+    regret_scores = OrderedDict({
         agent.name: [0.0 for step in range(n_steps)] for agent in agents
     })
+    reward_scores = OrderedDict({
+        agent.name: [tuple(0 for i in range(env.arms)) for step in range(n_steps)] for agent in agents
+    })
+    # prob_win_scores = OrderedDict({
+    #     agent.name: [0.0 for step in range(n_steps)] for agent in agents
+    # })
 
     for trial in range(n_trials):
         env.reset()
 
         for a in agents:
             a.init_actions(env.action_count)
-
         for i in range(n_steps):
-            optimal_reward = env.optimal_reward()
+            try:
+                optimal_reward = env.optimal_reward(i)
+            except:  # generate random in every iter
+                optimal_reward = env.optimal_reward()
 
             for agent in agents:
                 action = agent.get_action()
-                reward = env.pull(action)
+                try:
+                    reward = env.pull(action, i)  
+                except:  # generate random in every iter
+                    reward = env.pull(action)
                 agent.update(action, reward)
-                scores[agent.name][i] += optimal_reward - reward
+                regret_scores[agent.name][i] += optimal_reward - np.sum(reward)
+                reward_scores[agent.name][i][action] = reward
 
             env.step()  # change bandit step if it is unstationary
 
     for agent in agents:
-        scores[agent.name] = np.cumsum(scores[agent.name]) / n_trials
+        regret_scores[agent.name] = np.cumsum(regret_scores[agent.name]) / n_trials
+        for arm in env.arms:
+            reward_scores[agent.name][arm] = np.cumsum(reward_scores[agent.name][arm])
 
-    return scores
+    return regret_scores, reward_scores
 
 
-def plot_regret(agents, scores):
+def plot_regret(agents, regret_scores, plot_name):
     for agent in agents:
-        plt.plot(scores[agent.name])
+        plt.plot(regret_scores[agent.name])
+
 
     plt.legend([agent.name for agent in agents])
 
     plt.ylabel("regret")
     plt.xlabel("steps")
 
-    plt.savefig("Data/Plots/BernoulliBandits.pdf")
+    plt.savefig("Data/Plots/Regret_" + plot_name + ".pdf")
 
 
+def plot_rewards(agents, reward_scores, plot_name):
+    for agent in agents:
+        for arm in range(len(reward_scores[agent.name])):
+            plt.plot(reward_scores[agent.name][arm])
+    plt.legend([(agent.name, arm) for agent, arms in zip(agents, len(reward_scores[agent.name]))])
+    plt.ylabel("rewards")
+    plt.xlabel("steps")
+    plt.savefig("Data/Plots/Rewards" + plot_name + ".pdf")
 
 
 

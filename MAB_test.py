@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import json
 from MAB import (gener_random_revenue, ucb,
                  BernoulliBandit, ThompsonSamplingAgent, EpsilonGreedyAgent, UCBAgent,
+                 BernoulliBanditData, ThompsonSamplingAgentData,
                  get_regret, plot_regret)
 # An example that shows how to use the UCB1 learning policy
 # to make decisions between two arms based on their expected rewards.
@@ -101,8 +102,16 @@ agents = [
      UCBAgent(),
      ThompsonSamplingAgent()
 ]
+agents = [
+         ThompsonSamplingAgentData()
+]
 
-regret = get_regret(BernoulliBandit(), agents, n_steps=10000, n_trials=60)
+experiment_raw = pd.read_csv("Data/Simulation_Data/Conversion2.csv").drop("Unnamed: 0", axis=1)
+experiment_raw.columns = np.arange(len(experiment_raw.columns))
+
+regret = get_results(BernoulliBanditData(experiment_raw, n_chunks=50), agents,
+                    n_steps=10000/50, n_trials=100)
+# regret = get_regret(BernoulliBandit(), agents, n_steps=200, n_trials=100)
 plot_regret(agents, regret)
 
 
