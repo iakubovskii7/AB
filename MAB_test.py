@@ -109,10 +109,11 @@ agents = [
 experiment_raw = pd.read_csv("Data/Simulation_Data/Conversion2.csv").drop("Unnamed: 0", axis=1)
 experiment_raw.columns = np.arange(len(experiment_raw.columns))
 
-regret = get_results(BernoulliBanditData(experiment_raw, n_chunks=50), agents,
+regret, reward = get_regret(BernoulliBanditBatch(experiment_raw, n_chunks=50), agents,
                     n_steps=10000/50, n_trials=100)
 # regret = get_regret(BernoulliBandit(), agents, n_steps=200, n_trials=100)
 plot_regret(agents, regret)
+plot_reward(agents, reward)
 
 
 

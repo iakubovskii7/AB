@@ -200,7 +200,7 @@ class ThompsonSamplingAgent(AbstractAgent):
         return self.__class__.__name__
 
 
-class BernoulliBanditData:
+class BernoulliBanditBatch:
     def __init__(self, experiment_df, n_chunks=100, arms=2):
         # self._probs = np.random.random(arms)
         self._experiment_df = experiment_df
@@ -219,7 +219,7 @@ class BernoulliBanditData:
         Used for regret calculation
         """
         all_rewards_iter = np.array([np.sum(self._experiment_df[i][iter * self._n_chunks : (iter+1) * self._n_chunks])
-                                    for i in range(len(self._experiment_df.keys()))
+                                    for i, key in enumerate(self._experiment_df.keys())
                                     ])
         return np.max(all_rewards_iter)
 
@@ -234,7 +234,7 @@ class BernoulliBanditData:
         """
 
 
-class AbstractAgentData(metaclass=ABCMeta):
+class AbstractAgentBatch(metaclass=ABCMeta):
     """
     Get action based on input data
     """
@@ -267,7 +267,7 @@ class AbstractAgentData(metaclass=ABCMeta):
         return self.__class__.__name__
 
 
-class ThompsonSamplingAgentData(AbstractAgentData):
+class ThompsonSamplingAgentBatch(AbstractAgentBatch):
     def get_action(self):
         """
         :eps = 1e-12
@@ -337,14 +337,14 @@ def plot_regret(agents, regret_scores, plot_name):
     plt.savefig("Data/Plots/Regret_" + plot_name + ".pdf")
 
 
-def plot_rewards(agents, reward_scores, plot_name):
+def plot_reward(agents, reward_scores, plot_name):
     for agent in agents:
-        for arm in range(len(reward_scores[agent.name])):
+        for arm, _ in enumerate(reward_scores[agent.name]):
             plt.plot(reward_scores[agent.name][arm])
     plt.legend([(agent.name, arm) for agent, arms in zip(agents, len(reward_scores[agent.name]))])
     plt.ylabel("rewards")
     plt.xlabel("steps")
-    plt.savefig("Data/Plots/Rewards" + plot_name + ".pdf")
+    plt.savefig("Data/Plots/Rewards_" + plot_name + ".pdf")
 
 
 
