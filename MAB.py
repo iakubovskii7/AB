@@ -1,7 +1,7 @@
 import re
 from collections import Counter
 from random import choices
-from typing import List, Dict
+from typing import List, Set, Dict, Tuple, Optional, NamedTuple
 from abc import ABCMeta, abstractmethod, abstractproperty
 from collections import OrderedDict
 import enum
@@ -89,6 +89,8 @@ def ucb_bootstrapped(revenue_dict: Dict[str, np.array],
     n_action = int(np.argmax(upper_bounds))
     return [*revenue_dict.keys()][n_action]
 
+
+# Pure realisation for classic MAB
 
 class BernoulliBandit:
     def __init__(self, arms=2):
@@ -195,33 +197,50 @@ class ThompsonSamplingAgent(AbstractAgent):
         """
         theta = np.random.beta(self._successes+1, self._failures+1)
         return np.argmax(theta)
+
     @property
     def name(self):
         return self.__class__.__name__
 
 
+# Batch Thompson bandits
 class BernoulliBanditBatch:
-    def __init__(self, experiment_df, n_chunks=100, arms=2):
-        # self._probs = np.random.random(arms)
-        self._experiment_df = experiment_df
-        self._n_chunks = n_chunks
-        self._n_actions = arms
+    def __init__(self, probs: List):
+        self._probs = probs
+        self._n_actions = len(probs)
 
     @property
     def action_count(self):
-        return len(self._experiment_df.keys())
+        return len(self._probs)
 
-    def pull(self, action, iter):
-        return self._experiment_df[action][iter*50 : (iter+1)*50]
+    def generate_events(self, thetas, batch_size):
+        shares_arm = thetas / sum(thetas)
+        rewards_generate_dict = {i: np.random.binomial(1, self._probs[i], shares_arm[i] * batch_size)
+                                 for i, _ in enumerate(self._probs)}
+        return rewards_generate_dict
 
-    def optimal_reward(self, iter):
+    def pull_arms(self, rewards_generate_dict, alphas: List, betas: List):
         """
-        Used for regret calculation
+        generate rewards according to updated thethas in previous batch
+        Args:
+            rewards_generate_dict: generate rewards for events
+            alphas: alpha in every batch for every arm
+            betas: beta in every batch for every arm
+        Returns: generate random trials according every arm batch size
         """
-        all_rewards_iter = np.array([np.sum(self._experiment_df[i][iter * self._n_chunks : (iter+1) * self._n_chunks])
-                                    for i, key in enumerate(self._experiment_df.keys())
-                                    ])
-        return np.max(all_rewards_iter)
+        S, F = [0] * len(self._probs), [0] * len(self._probs)  # assign to zero within every batch
+        maximum_len_arm = np.max(list(map(len, rewards_generate_dict.values())))
+        for event in range(maximum_len_arm):
+            random_event_theta = np.random.beta(alphas, betas)
+            action_arm_event = np.argmax(random_event_theta)
+            if
+
+
+    def optimal_reward(self, batch: int) -> float:
+        """
+        Used for regret calculation for every batch step
+        """
+        return np.max(self._probs) * len(batch)
 
     def step(self):
         """
@@ -238,10 +257,14 @@ class AbstractAgentBatch(metaclass=ABCMeta):
     """
     Get action based on input data
     """
-    def init_actions(self, arms):
-        self._successes = np.zeros(arms)
-        self._failures = np.zeros(arms)
-        self._total_pulls = 0
+    def init_actions(self, probs):
+        """
+        Initialize alphas and betas for every arm in first iteration
+        Args: probability list
+        Returns: cumulative successes and failures for every arm in event
+        """
+        self._alphas = [1] * len(probs)  # initialize alpha = 1 for every arm
+        self._betas = [1] * len(probs)  # initialize beta = 1 for every arm
 
     @abstractmethod
     def get_action(self):
@@ -251,16 +274,12 @@ class AbstractAgentBatch(metaclass=ABCMeta):
         """
         pass
 
-    def update(self, action, reward):
+    def update(self, action: int, reward: int):
         """
-        Observe reward from action and update agent's internal parameters
+        Observe reward from every action within batch
         :type action: int
-        :type reward: list of rewards !
+        :type reward: int
         """
-        self._total_pulls += len(reward)
-        amount_of_success = np.count_nonzero(reward)
-        self._successes[action] += amount_of_success
-        self._failures[action] += len(reward) - np.count_nonzero(reward)
 
     @property
     def name(self):
@@ -268,59 +287,60 @@ class AbstractAgentBatch(metaclass=ABCMeta):
 
 
 class ThompsonSamplingAgentBatch(AbstractAgentBatch):
-    def get_action(self):
+    def get_action(self, alphas: List, betas: List):
         """
-        :eps = 1e-12
-        :weights: np.zeros_like(self._successes) - not TS
-        :weights: np.random.beta(self._successes + eps, self._failures + eps)
-        :return: arm
+        Recalculate thetas after each batch
+        :weights: np.random.beta(alphas, betas)
+        :return: thethas after every each batch
         """
-        theta = np.random.beta(self._successes+1, self._failures+1)
-        return np.argmax(theta)
+        thetas = np.random.beta(alphas, betas)
+        return thetas
+
+    def pull_arm_after_batch(self):
+        ...
+
     @property
     def name(self):
         return self.__class__.__name__
 
 
-def get_results(env, agents, n_steps=5000, n_trials=50):
-    regret_scores = OrderedDict({
-        agent.name: [0.0 for step in range(n_steps)] for agent in agents
-    })
-    reward_scores = OrderedDict({
-        agent.name: [tuple(0 for i in range(env.arms)) for step in range(n_steps)] for agent in agents
-    })
+def get_results(env, agents, n_batches=100, batch_range=[10, 100], n_trials=10):
+    # regret_scores = OrderedDict({
+    #     agent.name: [0.0 for step in range(n_steps)] for agent in agents
+    # })
+    # reward_scores = OrderedDict({
+    #     agent.name: [tuple(0 for i in range(env.arms)) for step in range(n_steps)] for agent in agents
+    # })
     # prob_win_scores = OrderedDict({
     #     agent.name: [0.0 for step in range(n_steps)] for agent in agents
     # })
 
     for trial in range(n_trials):
         env.reset()
-
-        for a in agents:
-            a.init_actions(env.action_count)
-        for i in range(n_steps):
-            try:
-                optimal_reward = env.optimal_reward(i)
-            except:  # generate random in every iter
-                optimal_reward = env.optimal_reward()
-
+        for agent in agents:
+            agent.init_actions(env.probs)
+        for i in range(n_batches):
+            # Generate size of batch
+            batch_size = np.random.uniform(batch_range[0], batch_range[1])
+            optimal_reward = env.optimal_reward(batch_size)
             for agent in agents:
-                action = agent.get_action()
-                try:
-                    reward = env.pull(action, i)  
-                except:  # generate random in every iter
-                    reward = env.pull(action)
-                agent.update(action, reward)
-                regret_scores[agent.name][i] += optimal_reward - np.sum(reward)
-                reward_scores[agent.name][i][action] = reward
+                if i == 0:  # first batch we divide into equal proportions
+                    thetas = 1 / env.action_count
+                else:
+                    thetas = agent.get_action(agent.alphas, agent.betas)  # get thethas after every batch
+                rewards_generate_dict = env.generate_events(thetas, batch_size)
+                S, F = env.pull_arms(thetas, batch_size)  # get S and F for every arm
+                agent.update(thetas)  # update alpha, beta params for every arm
+                # regret_scores[agent.name][i] += optimal_reward - np.sum(reward)
+                # reward_scores[agent.name][i][action] = reward
 
             env.step()  # change bandit step if it is unstationary
 
-    for agent in agents:
-        regret_scores[agent.name] = np.cumsum(regret_scores[agent.name]) / n_trials
-        for arm in env.arms:
-            reward_scores[agent.name][arm] = np.cumsum(reward_scores[agent.name][arm])
-
+    # for agent in agents:
+    #     regret_scores[agent.name] = np.cumsum(regret_scores[agent.name]) / n_trials
+    #     for arm in env.arms:
+    #         reward_scores[agent.name][arm] = np.cumsum(reward_scores[agent.name][arm])
+    #
     return regret_scores, reward_scores
 
 
