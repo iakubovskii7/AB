@@ -4,14 +4,15 @@ import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 import glob
-from collections import Counter
-import plotly.express as px
-import plotly.graph_objects as go
 from scipy.stats import shapiro
 from scipy.stats import jarque_bera
 from scipy.stats import ttest_ind
 from scipy.stats import mannwhitneyu
+from scipy import stats
 from scipy.stats import kruskal
+from multipy.data import neuhaus
+from multipy.fwer import bonferroni, holm_bonferroni
+from multipy.fdr import lsu
 def normality_tests(data, alpha=0.05):
     """
     JB and Shapiro-Wilk tests for normality
@@ -88,4 +89,75 @@ def non_param_tests(df: pd.DataFrame, alpha=0.05):
     return stat_final, p_final
 
 # FWER — family-wise error rate
+
+def bonferroni_correction_function(rvs, alpha, number_tests):
+    """
+    Bonferroni correction
+    :param rvs:
+    :param alpha:
+    :param number_tests:
+    :return:
+    """
+    alpha_bonferroni = alpha / number_tests
+    counter = 0
+    for i in range(number_tests):
+        rvs_random = stats.norm.rvs(loc=5, scale=10, size=1000, random_state=i + 1)
+
+        statistic, pvalue = stats.ttest_ind(rvs, rvs_random, equal_var=False)
+
+        if pvalue <= alpha_bonferroni:
+            counter = counter + 1
+
+    print(counter)
+
+
+def bonferroni_holm_correction_function(rvs, alpha, number_tests):
+    """
+    Bonferroni-Holm correction
+    :param rvs:
+    :param alpha:
+    :param number_tests:
+    :return:
+    """
+    pvalue_test = []
+    for i in range(number_tests):
+        rvs_random = stats.norm.rvs(loc=5, scale=10, size=1000, random_state=i + 1)
+
+        statistic, pvalue = stats.ttest_ind(rvs, rvs_random, equal_var=False)
+        pvalue_test.append(pvalue)
+
+    pvalue_test_sorted = sorted(pvalue_test, key=float)
+
+    counter = 0
+    for i in range(number_tests):
+        if pvalue_test_sorted[i] <= alpha / (number_tests - i):
+            counter = counter + 1
+
+    print(counter)
+
+
+def sidak_correction_function(rvs, alpha, number_tests):
+    FWER = 1 - (1 - alpha) ** (1 / number_tests)
+    alpha_sidak = 1 - (1 - FWER) ** (1 / number_tests)
+
+    counter = 0
+    for i in range(number_tests):
+        rvs_random = stats.norm.rvs(loc=5, scale=10, size=1000, random_state=i + 1)
+
+        statistic, pvalue = stats.ttest_ind(rvs, rvs_random, equal_var=False)
+
+        if pvalue <= alpha_sidak:
+            counter = counter + 1
+
+    print(counter)
+
+# Wilcoxon–Mann–Whitney
+mean_rank, n1, n2 = 5, 100, 105
+concordance_probability = (mean_rank - (n1 + 1) / 2) / (n2)
+# randomly chosen from group1 has a value greater than a
+# randomly chosen from group2.
+
+
+
+
 
