@@ -199,5 +199,7 @@ def bootstrap_jit_parallel(data, boots=10000, q=0.95, log=False):
         else:
             to_return[b] = total / data.shape[0]
     quantile = np.quantile(to_return, q)
-    assert isinstance(quantile, float)
     return quantile
+
+
+
