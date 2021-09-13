@@ -1,18 +1,26 @@
-import pandas as pd
 import numpy as np
-import os
-import matplotlib.pyplot as plt
-import seaborn as sns
-import glob
-from scipy.stats import shapiro
-from scipy.stats import jarque_bera
-from scipy.stats import ttest_ind
-from scipy.stats import mannwhitneyu
+import pandas as pd
 from scipy import stats
-from scipy.stats import kruskal
-from multipy.data import neuhaus
-from multipy.fwer import bonferroni, holm_bonferroni
-from multipy.fdr import lsu
+from scipy.stats import jarque_bera
+from scipy.stats import mannwhitneyu
+from scipy.stats import shapiro
+from scipy.stats import ttest_ind
+
+
+def get_size_student(mean1, mean2, alpha, beta, sd):
+    z_alpha = stats.norm.ppf(1 - alpha / 2)
+    z_beta = stats.norm.ppf(1 - beta)
+    n = (np.sqrt(2) * sd * (z_beta + z_alpha) / (mean1 - mean2)) ** 2
+    return np.uint16(n)
+
+
+def get_size_zratio(p1, p2, alpha, beta):
+    z_alpha = stats.norm.ppf(1 - alpha / 2)
+    z_beta = stats.norm.ppf(1 - beta)
+    n = (p1 * (1 - p1) + p2 * (1 - p2)) * ((z_alpha + z_beta) / (p1 - p2)) ** 2
+    return np.uint16(n)
+
+
 def normality_tests(data, alpha=0.05):
     """
     JB and Shapiro-Wilk tests for normality
@@ -40,6 +48,7 @@ def normality_tests(data, alpha=0.05):
     print("\n")
     return p_jb, p_shapiro
 
+
 def param_mean_tests(data1, data2, alpha=0.05):
     """
     :param data1:
@@ -54,6 +63,7 @@ def param_mean_tests(data1, data2, alpha=0.05):
     else:
         print('Средние не равны')
     return p
+
 
 def non_param_tests(df: pd.DataFrame, alpha=0.05):
     """
@@ -87,6 +97,7 @@ def non_param_tests(df: pd.DataFrame, alpha=0.05):
     del stat
     del p
     return stat_final, p_final
+
 
 # FWER — family-wise error rate
 
@@ -151,13 +162,9 @@ def sidak_correction_function(rvs, alpha, number_tests):
 
     print(counter)
 
+
 # Wilcoxon–Mann–Whitney
 mean_rank, n1, n2 = 5, 100, 105
 concordance_probability = (mean_rank - (n1 + 1) / 2) / (n2)
 # randomly chosen from group1 has a value greater than a
 # randomly chosen from group2.
-
-
-
-
-
