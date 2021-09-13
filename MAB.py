@@ -230,10 +230,10 @@ class BernoulliBanditBatch:
         """
         S, F = [0] * len(self._probs), [0] * len(self._probs)  # assign to zero within every batch
         maximum_len_arm = np.max(list(map(len, rewards_generate_dict.values())))
-        for event in range(maximum_len_arm):
-            random_event_theta = np.random.beta(alphas, betas)
-            action_arm_event = np.argmax(random_event_theta)
-            if
+        # for event in range(maximum_len_arm):
+        #     random_event_theta = np.random.beta(alphas, betas)
+        #     action_arm_event = np.argmax(random_event_theta)
+        #     if
 
 
     def optimal_reward(self, batch: int) -> float:
