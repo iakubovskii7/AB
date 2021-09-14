@@ -7,10 +7,13 @@ from scipy.stats import shapiro
 from scipy.stats import ttest_ind
 
 
-def get_size_student(mean1, mean2, alpha, beta, sd):
+def get_size_student(mean1, mean2, alpha, beta, sd=None):
     z_alpha = stats.norm.ppf(1 - alpha / 2)
     z_beta = stats.norm.ppf(1 - beta)
-    n = (np.sqrt(2) * sd * (z_beta + z_alpha) / (mean1 - mean2)) ** 2
+    if sd != None:
+        n = (np.sqrt(2) * sd * (z_beta + z_alpha) / (mean1 - mean2)) ** 2
+    else:
+        n = "kek"
     return np.uint16(n)
 
 
