@@ -9,7 +9,7 @@ import bootstrapped.stats_functions as bs_stats
 import numpy as np
 from numba import jit
 
-from bootstrapped_ways import bootstrap_jit_parallel
+from bootstrap import bootstrap_jit_parallel
 
 np.set_printoptions(precision=3)
 np.set_printoptions(suppress=True)
