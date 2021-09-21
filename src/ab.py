@@ -1,10 +1,15 @@
+from itertools import combinations
+import statsmodels.stats.api as sms
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 from scipy import stats
 from scipy.stats import jarque_bera
 from scipy.stats import mannwhitneyu
 from scipy.stats import shapiro
 from scipy.stats import ttest_ind
+from AB.src.bootstrap import bootstrap_jit_parallel
 
 
 def get_size_student(mean1, mean2, alpha, beta, sd=None):
@@ -52,57 +57,9 @@ def normality_tests(data, alpha=0.05):
     return p_jb, p_shapiro
 
 
-def param_mean_tests(data1, data2, alpha=0.05):
-    """
-    :param data1:
-    :param data2:
-    :param alpha: significance level
-    :return: p-value for student
-    """
-    stat, p = ttest_ind(data1, data2)
-    print('stat=%.3f, p=%.3f' % (stat, p))
-    if p > alpha:
-        print('Средние равны')
-    else:
-        print('Средние не равны')
-    return p
-
-
-def non_param_tests(df: pd.DataFrame, alpha=0.05):
-    """
-    Mann-Whitney and
-    :param alpha: significance level for all variants
-    :param kwargs: series of data with commas as delimiter
-    :return: there were difference or nor
-    """
-    global stat
-    global p
-    if df.shape[1] == 2:
-        # Use Mann-Whitney
-        stat, p = mannwhitneyu(df.iloc[:, 0], df.iloc[:, 1])
-        print('stat=%.3f, p=%.3f' % (stat, p))
-        if p > alpha:
-            print(f'Mann-Whitney test concludes: medians of two samples are IDENTICAL on {alpha} significance')
-        else:
-            print(f'Mann-Whitney test concludes: medians of two samples are NOT IDENTICAL on {alpha} significance')
-    else:
-        for col in df.columns:
-            locals()['data_' + col] = df[col].dropna().values
-        datas = " , ".join('data_' + col for col in df.columns)
-        exec(f'''globals()['stat'], globals()['p'] = kruskal({datas})''')
-        print('stat=%.3f, p=%.3f' % (globals()['stat'], globals()['p']))
-        if globals()['p'] > alpha:
-            print(f'Kruskal test concludes: medians of few samples are IDENTICAL on {alpha} significance')
-        else:
-            print(f'Kruskal test concludes: medians of few samples are NOT IDENTICAL on {alpha} significance')
-    stat_final = globals()['stat']
-    p_final = globals()['p']
-    del stat
-    del p
-    return stat_final, p_final
-
 
 # FWER — family-wise error rate
+
 
 def bonferroni_correction_function(rvs, alpha, number_tests):
     """
@@ -166,8 +123,175 @@ def sidak_correction_function(rvs, alpha, number_tests):
     print(counter)
 
 
-# Wilcoxon–Mann–Whitney
-mean_rank, n1, n2 = 5, 100, 105
-concordance_probability = (mean_rank - (n1 + 1) / 2) / (n2)
-# randomly chosen from group1 has a value greater than a
-# randomly chosen from group2.
+def get_bs_confidence_interval(data, alpha=0.05):
+    quantile_array = np.quantile(data, [alpha/2, 1 - alpha/2])
+    return quantile_array
+
+
+def create_confidence_plot(df_results, directory="Plot/ABClassic"):
+
+    for lower, upper, y in zip(df_results['lower'], df_results['upper'], range(len(df_results))):
+        plt.plot((lower, upper), (y, y), 'ro-', color='orange');
+        plt.yticks(range(len(df_results)), list(df_results.index));
+        plt.axvline(x=0, color='b', ls='--');
+        plt.savefig(directory)
+
+
+class ABTest:
+    def __init__(self, data: np.array, alpha=0.05, beta=0.8, equal_var=False):
+        self.data = data
+        self.alpha = alpha
+        self.beta = beta
+        self.equal_var = equal_var
+        self.__all_comparisons_df = pd.DataFrame(
+            index=pd.MultiIndex.from_tuples(list(combinations(np.arange(self.data.shape[1]), 2)),
+                                            names=['var1', 'var2']),
+            columns=['statistic', 'p_value'])
+        """
+        Input - numpy array: shape[n_observation; n_variants]
+        :param equal_var: assumption about variance
+        :param data: np.array where shape[1] == number of potential variants
+        :param alpha: significance level
+        :param beta: type II error (1 - power of test)
+        """
+
+    def check_normality(self) -> pd.DataFrame:
+        """
+        check normality tests
+        :rtype: np.array[
+        """
+        stat_shapiro, p_shapiro = np.apply_along_axis(shapiro, 0, self.data)
+        stat_jarque, p_jarque = np.apply_along_axis(jarque_bera, 0, self.data)
+        result_norm = pd.DataFrame(index=np.arange(self.data.shape[1]))
+        result_norm['stat_shapiro'] = stat_shapiro.T
+        result_norm['p_shapiro'] = p_shapiro.T
+        result_norm['stat_jarque_bera'] = stat_jarque.T
+        result_norm['p_jarque_bera'] = p_jarque.T
+        return result_norm
+
+    def student_multiple_test(self) -> tuple[pd.DataFrame, any]:
+        """
+        Student test for independent two samples
+        :return: pandas dataframe with results
+        """
+        all_comparisons_student_df = self.__all_comparisons_df.copy()
+        for index, row in all_comparisons_student_df.iterrows():
+            all_comparisons_student_df.loc[index, "diff_mean"] = self.data[:, index[0]].mean() - self.data[:,
+                                                                                                 index[1]].mean()
+            stat_test, p_value = ttest_ind(self.data[:, index[0]], self.data[:, index[1]], equal_var=self.equal_var)
+            all_comparisons_student_df.loc[index, "statistic"] = stat_test
+            all_comparisons_student_df.loc[index, "p_value"] = p_value
+
+        all_comparisons_student_df.sort_values(['p_value'], inplace=True)
+        all_comparisons_student_df['i'] = np.arange(all_comparisons_student_df.shape[0]) + 1
+        all_comparisons_student_df['alpha_correction'] = (all_comparisons_student_df['i'] * self.alpha) / \
+                                                          all_comparisons_student_df.shape[0]
+        all_comparisons_student_df['stat_significance'] = np.where(all_comparisons_student_df['p_value'] >
+                                                                   all_comparisons_student_df['alpha_correction'],
+                                                                   False, True)
+        # Create confident intervals for difference with correction significance level
+        uservar = 'equal' if self.equal_var == True else 'unequal'
+        for index, row in all_comparisons_student_df.iterrows():
+            cm = sms.CompareMeans(sms.DescrStatsW(self.data[:, index[0]]), sms.DescrStatsW(self.data[:, index[1]]))
+            all_comparisons_student_df.loc[index, "lower"] = \
+            cm.tconfint_diff(usevar=uservar, alpha=row['alpha_correction'])[0]
+            all_comparisons_student_df.loc[index, "upper"] = \
+            cm.tconfint_diff(usevar=uservar, alpha=row['alpha_correction'])[1]
+
+        # Determine winners
+        for index, row in all_comparisons_student_df.iterrows():
+            all_comparisons_student_df.loc[index, "winner"] = np.where((row['stat_significance'] is True) &
+                                                                       (row['statistic'] < 0),
+                                                                       str(index[1]),
+                                                                       np.where(row['stat_significance'] is True,
+                                                                                str(index[0]), "not_winner")).item()
+        winner_count_student = all_comparisons_student_df['winner'].value_counts()
+
+        winner_student = None
+        if np.all(np.array(winner_count_student.index)) == "not_winner":
+            winner_student = "not_winner"
+
+        return all_comparisons_student_df, winner_count_student
+
+    def mann_whitney_multiple_test(self) -> tuple[pd.DataFrame, any]:
+        """
+        Student test for independent two samples
+        :return: pandas dataframe with results
+        """
+        all_comparisons_mannwhitney_df = self.__all_comparisons_df.copy()
+        for index, row in all_comparisons_mannwhitney_df.iterrows():
+            all_comparisons_mannwhitney_df.loc[index, "diff_mean"] = self.data[:, index[0]].mean() - \
+                                                                     self.data[:, index[1]].mean()
+            stat_test, p_value = mannwhitneyu(self.data[:, index[0]], self.data[:, index[1]])
+            all_comparisons_mannwhitney_df.loc[index, "statistic"] = stat_test
+            all_comparisons_mannwhitney_df.loc[index, "p_value"] = p_value
+
+        all_comparisons_mannwhitney_df.sort_values(['p_value'], inplace=True)
+        all_comparisons_mannwhitney_df['i'] = np.arange(all_comparisons_mannwhitney_df.shape[0]) + 1
+        all_comparisons_mannwhitney_df['alpha_correction'] = (all_comparisons_mannwhitney_df['i'] * self.alpha) / \
+                                                              all_comparisons_mannwhitney_df.shape[0]
+        all_comparisons_mannwhitney_df['stat_significance'] = np.where(all_comparisons_mannwhitney_df['p_value'] >
+                                                                       all_comparisons_mannwhitney_df[
+                                                                           'alpha_correction'], False, True)
+        # Determine winners
+        for index, row in all_comparisons_mannwhitney_df.iterrows():
+            all_comparisons_mannwhitney_df.loc[index, "winner"] = np.where((row['stat_significance'] is True) &
+                                                                           (row['statistic'] < 0),
+                                                                           str(index[1]),
+                                                                           np.where(row['stat_significance'] is True,
+                                                                                    str(index[0]), "not_winner")).item()
+        winner_count_mannwhitney = all_comparisons_mannwhitney_df['winner'].value_counts()
+
+        winner = None
+        if np.all(np.array(winner_count_mannwhitney.index)) == "not_winner":
+            winner_student = "not_winner"
+
+        return all_comparisons_mannwhitney_df, winner_count_mannwhitney
+
+    def bootstrap_multiple_test(self, n_boots: int) -> tuple[pd.DataFrame, any]:
+        all_comparisons_bootstrap = pd.DataFrame(
+            index=pd.MultiIndex.from_tuples(list(combinations(np.arange(self.data.shape[1]), 2)),
+                                            names=['var1', 'var2']),
+            columns=['bs_difference_means', 'p_value', 'bs_confident_interval'])
+        # Calculate bs samples
+        for index, row in all_comparisons_bootstrap.iterrows():
+            data1_bs_sample_means = bootstrap_jit_parallel(self.data[:, index[0]], n_boots=n_boots)
+            data2_bs_sample_means = bootstrap_jit_parallel(self.data[:, index[1]], n_boots=n_boots)
+            difference_bs_means = data1_bs_sample_means - data2_bs_sample_means
+            all_comparisons_bootstrap.at[index, "bs_difference_means"] = difference_bs_means
+            all_comparisons_bootstrap.loc[index, "mean1_mean2_diff"] = np.mean(data1_bs_sample_means) - np.mean(data2_bs_sample_means)
+            all_comparisons_bootstrap.loc[index, "p_value"] = 2 * np.min([np.sum(difference_bs_means < 0) / n_boots,
+                                                                         1 - np.sum(difference_bs_means < 0) / n_boots])
+        all_comparisons_bootstrap.sort_values(['p_value'], inplace=True)
+        all_comparisons_bootstrap.loc[:, 'i'] = np.arange(all_comparisons_bootstrap.shape[0]) + 1
+        all_comparisons_bootstrap.loc[:, 'alpha_correction'] = (all_comparisons_bootstrap['i'] * self.alpha) / \
+                                                                all_comparisons_bootstrap.shape[0]
+
+        # Create confident intervals for difference with correction significance level
+        for index, row in all_comparisons_bootstrap.iterrows():
+            all_comparisons_bootstrap.at[index, 'bs_confident_interval'] = get_bs_confidence_interval(
+                all_comparisons_bootstrap.loc[index, "bs_difference_means"],
+                alpha=all_comparisons_bootstrap.loc[index, 'alpha_correction'])
+        all_comparisons_bootstrap["lower"] = all_comparisons_bootstrap.loc[:, "bs_confident_interval"].apply(
+            lambda x: x[0])
+        all_comparisons_bootstrap["upper"] = all_comparisons_bootstrap.loc[:, "bs_confident_interval"].apply(
+            lambda x: x[1])
+
+        all_comparisons_bootstrap['stat_significance'] = np.where(
+            (all_comparisons_bootstrap['lower'] > 0) |
+            (all_comparisons_bootstrap['upper'] < 0), True, False)
+
+        # Determine winners
+        for index, row in all_comparisons_bootstrap.iterrows():
+            all_comparisons_bootstrap.loc[index, "winner"] = np.where(
+                (row['stat_significance'] is True) &
+                (row['mean1_mean2_diff'] < 0), str(index[1]), np.where(
+                    row['stat_significance'] is True, str(index[0]), "not_winner")).item()
+        winner_count_bootstrap = all_comparisons_bootstrap['winner'].value_counts()
+
+        winner = None
+        if np.all(np.array(winner_count_bootstrap.index)) == "not_winner":
+            winner = "not_winner"
+
+        return all_comparisons_bootstrap, winner_count_bootstrap
+
