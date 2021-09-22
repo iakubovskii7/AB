@@ -2,14 +2,17 @@ import re
 from collections import Counter
 from math import lgamma
 from random import choices
-from typing import List, Dict
+from typing import List, Dict, Tuple
+import matplotlib.pyplot as plt
 
 import bootstrapped.bootstrap as bs
 import bootstrapped.stats_functions as bs_stats
 import numpy as np
+from numpy import ndarray
 from numba import jit
 
-from bootstrap import bootstrap_jit_parallel
+from AB.src.bootstrap import bootstrap_jit_parallel
+from AB.src.ab import get_size_zratio
 
 np.set_printoptions(precision=3)
 np.set_printoptions(suppress=True)
@@ -118,6 +121,156 @@ def calc_prob_between(alphas, bethas):
     return g(alphas[0], bethas[0], alphas[1], bethas[1])
 
 
+class BatchThompson:
+    def __init__(self, p_list_mu: List[float], batch_size_share_mu: np.float):
+        self.p_array_mu = np.array(p_list_mu)
+        self.n_arms = len(p_list_mu)
+        self.n_obs_every_arm = get_size_zratio(p_list_mu[0], p_list_mu[1], alpha=0.05, beta=0.2)
+        self.batch_size_share_mu = batch_size_share_mu
+        self.alphas = np.repeat(1.0, self.n_arms)
+        self.bethas = np.repeat(1.0, self.n_arms)
+        self.probability_superiority_tuple = (0.5, 0.5)
+        self.k = (0, 0) # number of winners for every step
+
+       # Generating data for historic split
+        np.random.seed(np.uint16(np.random.random(size=1) * 100).item())
+        self.data = np.random.binomial(n=[1,1], p=self.p_array_mu,
+                                       size=(self.n_obs_every_arm, self.n_arms))
+
+        # print(f"Нужно наблюдений в каждую руку для выявления эффекта в классическом АБ-тесте: "
+        #       f"{self.n_obs_every_arm}")
+
+
+    def update_beta_params(self, batch_data: np.array, method:str):
+        if method == "summation":
+            self.alphas += np.nansum(batch_data, axis=0)
+            self.bethas += np.sum(batch_data == 0, axis=0)
+        elif method == "normalization":
+            S_list =  np.nansum(batch_data, axis=0)  # number of successes in within batch
+            F_list = np.sum(batch_data == 0, axis=0)
+            M = batch_data.shape[0]
+            K = self.n_arms
+
+            adding_alphas = (M / K ) * (np.array(S_list) / (np.array(S_list) + np.array(F_list)))
+            adding_bethas = (M / K ) * (1 - np.array(S_list) / (np.array(S_list) + np.array(F_list)))
+
+            adding_alphas = np.nan_to_num(adding_alphas)
+            adding_bethas = np.nan_to_num(adding_bethas)
+
+            self.alphas += adding_alphas
+            self.bethas += adding_bethas
+        return self.alphas, self.bethas
+
+
+    def update_prob_super(self, method_calc) -> Tuple:
+        if method_calc == 'integrating':
+            prob_superiority =  calc_prob_between(self.alphas, self.bethas)
+            self.probability_superiority_tuple = (prob_superiority, 1 - prob_superiority)
+
+
+    def split_data_historic(self, cumulative_observations: List, batch_split_obs: List):
+        """
+        Split data in every batch iteration
+        :param cumulative_observations: list with cumulative observations for every arm
+        :param batch_split_obs: how many observation we must extract this iter
+        :return:
+        """
+        n_rows, n_cols = np.max(batch_split_obs), self.n_arms
+        data_split = np.empty((n_rows, n_cols))
+        data_split[:] = np.nan
+        for i in range(self.n_arms):
+            data_split[:batch_split_obs[i], i] = \
+                self.data[cumulative_observations[i] : cumulative_observations[i] + batch_split_obs[i], i]
+        return data_split
+
+
+    def split_data_random(self, batch_split_obs: np.array):
+        """
+
+        :param batch_split_obs: size for every arm
+        :return:
+        """
+        data_split = np.empty((np.max(batch_split_obs), self.n_arms))
+        data_split[:] = np.nan
+        p_array = self.p_array_mu + np.random.normal(0, self.p_array_mu/3, size=self.n_arms)
+        p_array = np.where(p_array < 0, 0, p_array)
+        p_array = np.where(p_array > 1, 0, p_array)
+        for i in range(self.n_arms):
+            data_split[:batch_split_obs[i], i] = np.random.binomial(n=1, p=p_array[i],
+                                                                    size=batch_split_obs[i])
+        return data_split
+
+    # def create_plots(self, beta_distr_plot):
+    #     x = np.linspace(0, 1, 100)
+    #     rv1 = beta(self.alphas[0], self.bethas[0])
+    #     rv2 = beta(self.alphas[1], self.bethas[1])
+    #     fix, ax = plt.subplots()
+    #     ax.plot(x, rv1.pdf(x), label='control')
+    #     ax.plot(x, rv2.pdf(x), label='testing')
+    #     leg = ax.legend();
+    #     plt.title(f"Вероятность превосходства в %: "
+    #               f"{np.round(tuple(map(lambda x: x * 100, self.prob_superiority_tuple)), 1)}")
+    #     beta_distr_plot.savefig()
+    #     plt.close()
+
+
+    def start_experiment(self):
+
+        probability_superiority_step_list: List[ndarray] = []  # how share of traffic changes across experiment
+        observations_step_list: List[ndarray] = []  # how many observations is cumulated in every step
+
+        # Plots
+        # folder, file_name = self.experiment_name, str(self.p1) + "_" + str(self.p2)
+        cumulative_observations = np.repeat(0, self.n_arms)  # how many observations we extract every iter for every arm
+
+        while np.max(cumulative_observations) < self.n_obs_every_arm:
+            batch_size_share = self.batch_size_share_mu + np.random.normal(0, self.batch_size_share_mu / 3)
+            batch_size = batch_size_share * self.n_obs_every_arm * 2
+            if batch_size < 2:
+                batch_size = 2
+            batch_split_obs = (batch_size * np.array(self.probability_superiority_tuple)).astype(np.uint16)  # get number of observations every arm
+            cumulative_observations += batch_split_obs
+            # batch_data = batchT.split_data_historic(cumulative_observations=cumulative_observations,
+            #                                         batch_split_obs=batch_split_obs) # based on earlier generated distr
+            batch_data = self.split_data_random(batch_split_obs)  # based on generate batch online
+
+            # Updating all
+            self.update_beta_params(batch_data, method="normalization")  # update beta distributions parameters
+            self.update_prob_super(method_calc="integrating") # update probability superiority
+            self.k += np.round(self.probability_superiority_tuple, 0)
+
+            # Append for resulting
+            probability_superiority_step_list.append(self.probability_superiority_tuple)
+            observations_step_list.append(batch_split_obs)
+
+            # stopping_criterion = (np.max(self.probability_superiority_tuple) >= 0.99) | \
+            #                      (np.max(cumulative_observations) >  self.n_obs_every_arm)
+        return np.round(probability_superiority_step_list, 3), observations_step_list
+
+
+def plot_mab_results(p_list_mu, batch_size_share_mu,
+                     probability_superiority_steps, cumulative_observations_step_list):
+    """
+    Function creates two lines in one plot: left axis - probability superiority, right - cummulative observation
+    :param p_list_mu: expectation for conversion rates
+    :param batch_size_share_mu: expectation for batch size
+    :param probability_superiority_steps:
+    :param cumulative_observations_step_list:
+    :param folder:
+    :return:
+    """
+    plt.figure(figsize=(15, 7));
+    x = np.arange(1, probability_superiority_steps.shape[0]+1)
+    fig, ax1 = plt.subplots();
+
+    ax2 = ax1.twinx();
+    ax1.plot(x, cumulative_observations_step_list[:, 0], '--', color='b', label='data1');
+    ax1.plot(x, cumulative_observations_step_list[:, 1], '--', color='r', label='data2');
+    ax2.plot(x, np.array(probability_superiority_steps)[:, 1], '-', color='r');
+    plt.title(f"p_list_mu: {p_list_mu} \n batch_size_share_mu: {batch_size_share_mu} \n "
+              f"dash lines - observations; red line - probability to win for 2 variant",
+              fontdict={"size": 5});
+    return
 
 
 
