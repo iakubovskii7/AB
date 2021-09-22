@@ -3,6 +3,7 @@ import statsmodels.stats.api as sms
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
 import seaborn as sns
 from scipy import stats
 from scipy.stats import jarque_bera
@@ -294,4 +295,22 @@ class ABTest:
             winner = "not_winner"
 
         return all_comparisons_bootstrap, winner_count_bootstrap
+
+
+def plot_alpha_power(data: np.ndarray, label: str, ax: Axes,
+                     color: str = sns.color_palette("deep")[0],
+                     linewidth=3):
+    sorted_data = np.sort(data)
+    position = stats.rankdata(sorted_data, method='ordinal')
+    cdf = position / data.shape[0]
+
+    sorted_data = np.hstack((sorted_data, 1))
+    cdf = np.hstack((cdf, 1))
+
+    return ax.plot(sorted_data,
+                   cdf,
+                   color=color,
+                   linestyle='solid',
+                   label=label,
+                   linewidth=linewidth)
 
