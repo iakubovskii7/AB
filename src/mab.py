@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import bootstrapped.bootstrap as bs
 import bootstrapped.stats_functions as bs_stats
 import numpy as np
+np.seterr(divide='ignore', invalid='ignore')
 from numpy import ndarray
 from numba import jit
 
@@ -248,29 +249,7 @@ class BatchThompson:
         return np.round(probability_superiority_step_list, 3), observations_step_list
 
 
-def plot_mab_results(p_list_mu, batch_size_share_mu,
-                     probability_superiority_steps, cumulative_observations_step_list):
-    """
-    Function creates two lines in one plot: left axis - probability superiority, right - cummulative observation
-    :param p_list_mu: expectation for conversion rates
-    :param batch_size_share_mu: expectation for batch size
-    :param probability_superiority_steps:
-    :param cumulative_observations_step_list:
-    :param folder:
-    :return:
-    """
-    plt.figure(figsize=(15, 7));
-    x = np.arange(1, probability_superiority_steps.shape[0]+1)
-    fig, ax1 = plt.subplots();
 
-    ax2 = ax1.twinx();
-    ax1.plot(x, cumulative_observations_step_list[:, 0], '--', color='b', label='data1');
-    ax1.plot(x, cumulative_observations_step_list[:, 1], '--', color='r', label='data2');
-    ax2.plot(x, np.array(probability_superiority_steps)[:, 1], '-', color='r');
-    plt.title(f"p_list_mu: {p_list_mu} \n batch_size_share_mu: {batch_size_share_mu} \n "
-              f"dash lines - observations; red line - probability to win for 2 variant",
-              fontdict={"size": 5});
-    return
 
 
 
