@@ -4,6 +4,7 @@ from math import lgamma
 from random import choices
 from typing import List, Dict, Tuple
 import matplotlib.pyplot as plt
+from scipy.stats import beta
 
 import bootstrapped.bootstrap as bs
 import bootstrapped.stats_functions as bs_stats
@@ -131,6 +132,7 @@ class BatchThompson:
         self.alphas = np.repeat(1.0, self.n_arms)
         self.bethas = np.repeat(1.0, self.n_arms)
         self.probability_superiority_tuple = (0.5, 0.5)
+        self.expected_losses = 0
         self.k = (0, 0) # number of winners for every step
 
        # Generating data for historic split
@@ -167,6 +169,7 @@ class BatchThompson:
         if method_calc == 'integrating':
             prob_superiority =  calc_prob_between(self.alphas, self.bethas)
             self.probability_superiority_tuple = (prob_superiority, 1 - prob_superiority)
+        self.expected_losses = expected_loss(self.alphas, self.bethas)
 
 
     def split_data_historic(self, cumulative_observations: List, batch_split_obs: List):
@@ -199,20 +202,9 @@ class BatchThompson:
         for i in range(self.n_arms):
             data_split[:batch_split_obs[i], i] = np.random.binomial(n=1, p=p_array[i],
                                                                     size=batch_split_obs[i])
-        return data_split
+            # data_split[:batch_split_obs[i], i] = [1 if j <= p_array[i] else 0 for j in np.random.random(batch_split_obs[i])]
 
-    # def create_plots(self, beta_distr_plot):
-    #     x = np.linspace(0, 1, 100)
-    #     rv1 = beta(self.alphas[0], self.bethas[0])
-    #     rv2 = beta(self.alphas[1], self.bethas[1])
-    #     fix, ax = plt.subplots()
-    #     ax.plot(x, rv1.pdf(x), label='control')
-    #     ax.plot(x, rv2.pdf(x), label='testing')
-    #     leg = ax.legend();
-    #     plt.title(f"Вероятность превосходства в %: "
-    #               f"{np.round(tuple(map(lambda x: x * 100, self.prob_superiority_tuple)), 1)}")
-    #     beta_distr_plot.savefig()
-    #     plt.close()
+        return data_split
 
 
     def start_experiment(self):
@@ -249,8 +241,19 @@ class BatchThompson:
         return np.round(probability_superiority_step_list, 3), observations_step_list
 
 
+def expected_loss(alphas, betas, size=10000):
+    """
+    Calculate expected losses for beta distribution
+    :param size: number of random values
+    :param alphas: alpha params
+    :param betas: beta params
+    :return:
+    """
+    control_thetas = beta.rvs(alphas[0], betas[0], size=size)
+    test_thetas = beta.rvs(alphas[1], betas[1], size=size)
+    difference = test_thetas - control_thetas
+    difference = np.where(difference < 0, 0, difference)
+    prob_super0 = np.count_nonzero(difference) / size  # probability superiority for
+    expected_losses = np.sum(difference) / size
 
-
-
-
-
+    return expected_losses
