@@ -167,7 +167,7 @@ class BatchThompson:
 
     def update_prob_super(self, method_calc) -> Tuple:
         if method_calc == 'integrating':
-            prob_superiority =  calc_prob_between(self.alphas, self.bethas)
+            prob_superiority = calc_prob_between(self.alphas, self.bethas)
             self.probability_superiority_tuple = (prob_superiority, 1 - prob_superiority)
         self.expected_losses = expected_loss(self.alphas, self.bethas)
 
