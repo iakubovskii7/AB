@@ -1,1 +1,1 @@
-# Classic, Bayesian AB tests and multiarmed bandits for Appbooster products
+# Classic, Bayesian AB tests and multiarmed bandits for proba.ai
