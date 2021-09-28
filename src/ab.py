@@ -329,6 +329,8 @@ class ABConversionTest:
 
             self.__all_comparisons_df.loc[index, "z_statistic"] = z_stat_ratio
             self.__all_comparisons_df.loc[index, "p_value_zstat"] = p_value_ztest
+            self.__all_comparisons_df.loc[index, "se_zstat"] =
+
 
             data1_bs_sample_means = bootstrap_jit_parallel(data1, n_boots=n_boots)
             data2_bs_sample_means = bootstrap_jit_parallel(data2, n_boots=n_boots)
