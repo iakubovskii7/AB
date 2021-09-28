@@ -11,6 +11,7 @@ from scipy.stats import mannwhitneyu
 from scipy.stats import shapiro
 from scipy.stats import ttest_ind
 from AB.src.bootstrap import bootstrap_jit_parallel
+from statsmodels.stats.proportion import proportions_ztest
 
 
 def get_size_student(mean1, mean2, alpha, beta, sd=None):
@@ -56,8 +57,6 @@ def normality_tests(data, alpha=0.05):
     в пользу отвержения нулевой гипотезы \ - распределение НЕ нормальное')
     print("\n")
     return p_jb, p_shapiro
-
-
 
 # FWER — family-wise error rate
 
@@ -139,7 +138,7 @@ def create_confidence_plot(df_results, directory="Plot/ABClassic"):
 
 
 class ABTest:
-    def __init__(self, data: np.array, alpha=0.05, beta=0.8, equal_var=False):
+    def __init__(self, data: np.array, alpha=0.05, beta=0.2, equal_var=False):
         self.data = data
         self.alpha = alpha
         self.beta = beta
@@ -250,51 +249,110 @@ class ABTest:
         return all_comparisons_mannwhitney_df, winner_count_mannwhitney
 
     def bootstrap_multiple_test(self, n_boots: int) -> tuple[pd.DataFrame, any]:
-        all_comparisons_bootstrap = pd.DataFrame(
+        all_comparisons_bootstrap_df = pd.DataFrame(
             index=pd.MultiIndex.from_tuples(list(combinations(np.arange(self.data.shape[1]), 2)),
                                             names=['var1', 'var2']),
             columns=['bs_difference_means', 'p_value', 'bs_confident_interval'])
         # Calculate bs samples
-        for index, row in all_comparisons_bootstrap.iterrows():
+        for index, row in all_comparisons_bootstrap_df.iterrows():
             data1_bs_sample_means = bootstrap_jit_parallel(self.data[:, index[0]], n_boots=n_boots)
             data2_bs_sample_means = bootstrap_jit_parallel(self.data[:, index[1]], n_boots=n_boots)
             difference_bs_means = data1_bs_sample_means - data2_bs_sample_means
-            all_comparisons_bootstrap.at[index, "bs_difference_means"] = difference_bs_means
-            all_comparisons_bootstrap.loc[index, "mean1_mean2_diff"] = np.mean(data1_bs_sample_means) - np.mean(data2_bs_sample_means)
-            all_comparisons_bootstrap.loc[index, "p_value"] = 2 * np.min([np.sum(difference_bs_means < 0) / n_boots,
+            all_comparisons_bootstrap_df.at[index, "bs_difference_means"] = difference_bs_means
+            all_comparisons_bootstrap_df.loc[index, "mean1_mean2_diff"] = np.mean(data1_bs_sample_means) - np.mean(data2_bs_sample_means)
+            all_comparisons_bootstrap_df.loc[index, "p_value"] = 2 * np.min([np.sum(difference_bs_means < 0) / n_boots,
                                                                          1 - np.sum(difference_bs_means < 0) / n_boots])
-        all_comparisons_bootstrap.sort_values(['p_value'], inplace=True)
-        all_comparisons_bootstrap.loc[:, 'i'] = np.arange(all_comparisons_bootstrap.shape[0]) + 1
-        all_comparisons_bootstrap.loc[:, 'alpha_correction'] = (all_comparisons_bootstrap['i'] * self.alpha) / \
-                                                                all_comparisons_bootstrap.shape[0]
+        all_comparisons_bootstrap_df.sort_values(['p_value'], inplace=True)
+        all_comparisons_bootstrap_df.loc[:, 'i'] = np.arange(all_comparisons_bootstrap_df.shape[0]) + 1
+        all_comparisons_bootstrap_df.loc[:, 'alpha_correction'] = (all_comparisons_bootstrap_df['i'] * self.alpha) / \
+                                                                all_comparisons_bootstrap_df.shape[0]
 
         # Create confident intervals for difference with correction significance level
-        for index, row in all_comparisons_bootstrap.iterrows():
-            all_comparisons_bootstrap.at[index, 'bs_confident_interval'] = get_bs_confidence_interval(
-                all_comparisons_bootstrap.loc[index, "bs_difference_means"],
-                alpha=all_comparisons_bootstrap.loc[index, 'alpha_correction'])
-        all_comparisons_bootstrap["lower"] = all_comparisons_bootstrap.loc[:, "bs_confident_interval"].apply(
+        for index, row in all_comparisons_bootstrap_df.iterrows():
+            all_comparisons_bootstrap_df.at[index, 'bs_confident_interval'] = get_bs_confidence_interval(
+                all_comparisons_bootstrap_df.loc[index, "bs_difference_means"],
+                alpha=all_comparisons_bootstrap_df.loc[index, 'alpha_correction'])
+        all_comparisons_bootstrap_df["lower"] = all_comparisons_bootstrap_df.loc[:, "bs_confident_interval"].apply(
             lambda x: x[0])
-        all_comparisons_bootstrap["upper"] = all_comparisons_bootstrap.loc[:, "bs_confident_interval"].apply(
+        all_comparisons_bootstrap_df["upper"] = all_comparisons_bootstrap_df.loc[:, "bs_confident_interval"].apply(
             lambda x: x[1])
 
-        all_comparisons_bootstrap['stat_significance'] = np.where(
-            (all_comparisons_bootstrap['lower'] > 0) |
-            (all_comparisons_bootstrap['upper'] < 0), True, False)
+        all_comparisons_bootstrap_df['stat_significance'] = np.where(
+            (all_comparisons_bootstrap_df['lower'] > 0) |
+            (all_comparisons_bootstrap_df['upper'] < 0), True, False)
 
         # Determine winners
-        for index, row in all_comparisons_bootstrap.iterrows():
-            all_comparisons_bootstrap.loc[index, "winner"] = np.where(
+        for index, row in all_comparisons_bootstrap_df.iterrows():
+            all_comparisons_bootstrap_df.loc[index, "winner"] = np.where(
                 (row['stat_significance'] is True) &
                 (row['mean1_mean2_diff'] < 0), str(index[1]), np.where(
                     row['stat_significance'] is True, str(index[0]), "not_winner")).item()
-        winner_count_bootstrap = all_comparisons_bootstrap['winner'].value_counts()
+        winner_count_bootstrap = all_comparisons_bootstrap_df['winner'].value_counts()
 
         winner = None
         if np.all(np.array(winner_count_bootstrap.index)) == "not_winner":
             winner = "not_winner"
 
-        return all_comparisons_bootstrap, winner_count_bootstrap
+        return all_comparisons_bootstrap_df, winner_count_bootstrap
+
+    def start_experiment(self):
+        all_comparisons_student_df, winner_count_student = self.student_multiple_test()
+        all_comparisons_mannwhitney_df, winner_count_mannwhitney = self.mann_whitney_multiple_test()
+        all_comparisons_bootstrap_df, winner_count_bootstrap = self.bootstrap_multiple_test()
+        if self.data.shape[1] == 2:
+            winner_student_idx = all_comparisons_student_df['winner'].values[0]
+            winner_mannwhitney_idx = all_comparisons_mannwhitney_df['winner'].values[0]
+            winner_bootstrap_idx = all_comparisons_bootstrap_df['winner'].values[0]
+        # TODO: add case for 3+ variants
+        return winner_student_idx, winner_mannwhitney_idx, winner_bootstrap_idx
+
+
+class ABConversionTest:
+    def __init__(self, p_control: float, mde: float, batch_size_share_mu: float, seed):
+        self.p_array_mu = np.array([p_control, (1 + mde * p_control)])
+        self.seed = seed
+        self.n_arms = len(self.p_list_mu)
+        self.n_obs_every_arm = get_size_zratio(self.p_array_mu[0], self.p_array_mu[1], alpha=0.05, beta=0.2)
+        self.__all_comparisons_df = pd.DataFrame(
+            index=pd.MultiIndex.from_tuples(list(combinations(np.arange(self.data.shape[1]), 2)),
+                                            names=['var1', 'var2']),
+            columns=['statistic', 'p_value'])
+
+    def start_experiment(self, n_boots=10000):
+        np.random.seed(self.seed)
+        data = np.random.binomial(n=[1] * self.n_arms, p=self.p_array_mu)
+        for index, row in self.__all_comparisons_df.iterrows():
+            data1, data2 = data[:, index[0]], data[:, index[1]]
+            self.__all_comparisons_df.loc[index, "diff_mean"] = data1.mean() - data2.mean()
+            z_stat_ratio, p_value_ztest = proportions_ztest([data1.sum(), data2.sum()],
+                                                            [data.shape[0]] * self.n_arms)
+
+            self.__all_comparisons_df.loc[index, "z_statistic"] = z_stat_ratio
+            self.__all_comparisons_df.loc[index, "p_value_zstat"] = p_value_ztest
+
+            data1_bs_sample_means = bootstrap_jit_parallel(data1, n_boots=n_boots)
+            data2_bs_sample_means = bootstrap_jit_parallel(data2, n_boots=n_boots)
+            difference_bs_means = data1_bs_sample_means - data2_bs_sample_means
+            self.__all_comparisons_df.at[index, "bs_difference_means"] = difference_bs_means
+            self.__all_comparisons_df.loc[index, "mean1_mean2_diff"] = np.mean(data1_bs_sample_means) - np.mean(data2_bs_sample_means)
+            self.__all_comparisons_df.loc[index, "p_value_bs"] = 2 * np.min([np.sum(difference_bs_means < 0) / n_boots,
+                                                                             1 - np.sum(difference_bs_means < 0) / n_boots])
+        # Sort different ways
+        # 1 way - z-test
+        self.__all_comparisons_df.sort_values("p_value_zstat", inplace=True)
+        self.__all_comparisons_df['i'] = np.arange(self.__all_comparisons_df.shape[0]) + 1
+        self.__all_comparisons_df['alpha_correction'] = (self.__all_comparisons_df['i'] * self.alpha) / \
+                                                         self.__all_comparisons_df.shape[0]
+        self.__all_comparisons_df['stat_significance_z_test'] = np.where(self.__all_comparisons_df['p_value_zstat'] >
+                                                                         self.__all_comparisons_df['alpha_correction'],
+                                                                         False, True)
+
+
+
+
+
+
+
 
 
 def plot_alpha_power(data: np.ndarray, label: str, ax: Axes,

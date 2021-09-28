@@ -45,61 +45,6 @@ def calculate_bayesian_probability(num_arms, N, random_seed, a, b):
             counts_elements.insert(arm, 0)
     return counts_elements / sum(counts_elements)
 
-alphas, betas = [334, 338], [1385 - 334, 1385 - 338]
-print(calculate_bayesian_probability(2, 10000, 17, alphas, betas))
-print(calc_prob_between(alphas, betas))
 
-
-# PyMC3
-
-np.random.seed(123)
-n_experiments = 1000
-theta_real = 0.35
-data = stats.bernoulli.rvs(p=theta_real, size=n_experiments)
-
-with pm.Model() as our_first_model:
-    theta = pm.Beta('theta', alpha=1, beta=1)
-    y = pm.Bernoulli('y', p=theta, observed=data)
-    start = pm.find_MAP()
-    step = pm.Metropolis()
-    trace = pm.sample(1000, step=step, start=start, chains=15, cores=4)
-
-
-burnin = 100
-chain = trace[burnin:]
-pm.traceplot(chain, lines={'theta': theta_real})
-pm.plot_posterior(chain)
-
-
-
-mu1 = 82
-mu2 = 78
-var1 = mu1 * (1 - 0.307)
-var2 = mu2 * (1 - 0.274)
-
-cohens = (mu1 - mu2) / np.sqrt((var1 + var2) / 2)
-stats.beta.cdf(x=cohens/np.sqrt(2), a=(82 + 78) / 2, b=(267 + 284)/2)
-stats.norm.cdf(x=cohens/np.sqrt(2))
-
-
-tips = sns.load_dataset('tips')
-y = tips['tip'].values
-idx = pd.Categorical(tips['day']).codes
-x = set(tips['day'])
-
-with pm.Model() as comparing_groups:
-    means = pm.Normal('means', mu=0, sd=10, shape=len(set(x)))
-    sds = pm.HalfNormal('sds', sd=10, shape=len(set(x)))
-    y = pm.Normal('y', mu=means[idx], sd=sds[idx], observed=y)
-    trace_cg = pm.sample(5000, chains=15, cores=15)
-chain_cg = trace_cg[100::]
-pm.plot_trace(chain_cg)
-
-pm.sample_ppc()
-
-summar = az.summary(trace_cg)
-
-ppc = pm.sample_posterior_predictive(trace_cg, samples=1000,
-                                     model=comparing_groups)
-
-az.ppc
+class BayesianTest:
+    def __init__(self):
