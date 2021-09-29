@@ -9,12 +9,13 @@ from scipy.stats import beta
 import bootstrapped.bootstrap as bs
 import bootstrapped.stats_functions as bs_stats
 import numpy as np
+
 np.seterr(divide='ignore', invalid='ignore')
 from numpy import ndarray
 from numba import jit
 
-from AB.src.bootstrap import bootstrap_jit_parallel
-from AB.src.ab import get_size_zratio
+from src.bootstrap import bootstrap_jit_parallel
+from src.ab import get_size_zratio
 
 np.set_printoptions(precision=3)
 np.set_printoptions(suppress=True)
@@ -29,6 +30,7 @@ def gener_random_revenue(revenue_values: List):
     values = list(revenue_counter.keys())
     probs = list(map(lambda x: x / len(revenue_values), list(revenue_counter.values())))
     return choices(values, probs)
+
 
 # utility_dict - накопленные суммы по каждой ручки (reward)
 # selections_dist - каждый ключ - ручки, значение сколько раз выбрали руку
@@ -87,7 +89,7 @@ def ucb_bootstrapped(revenue_dict: Dict[str, np.array],
 
     # Find upper bounds with bootstrapped samples
     upper_bounds = list(map(bootstrap_jit_parallel, revenue_dict.values(),
-                            [n_boots]*len(revenue_dict.keys())))
+                            [n_boots] * len(revenue_dict.keys())))
 
     n_action = int(np.argmax(upper_bounds))
     return [*revenue_dict.keys()][n_action]
@@ -123,10 +125,27 @@ def calc_prob_between(alphas, bethas):
     return g(alphas[0], bethas[0], alphas[1], bethas[1])
 
 
+def expected_loss(alphas, betas, size=10000):
+    """
+    Calculate expected losses for beta distribution
+    :param size: number of random values
+    :param alphas: alpha params
+    :param betas: beta params
+    :return:
+    """
+    control_thetas = beta.rvs(alphas[0], betas[0], size=size)
+    test_thetas = beta.rvs(alphas[1], betas[1], size=size)
+    difference = test_thetas - control_thetas
+    difference = np.where(difference < 0, 0, difference)
+    # prob_super0 = np.count_nonzero(difference) / size  # probability superiority for
+    expected_losses = (np.sum(difference) / size) * 100
+    return expected_losses
+
+
 class BatchThompson:
-    def __init__(self, p_control: float, mde: float, batch_size_share_mu: float):
-        self.p_array_mu = np.array([p_control, (1 + mde * p_control)])
-        self.n_arms = len(self.p_list_mu)
+    def __init__(self, p_control: float, mde: float, batch_size_share_mu: float, criterion_dict: Dict, seed=1):
+        self.p_array_mu = np.array([p_control, (1 + mde) * p_control])
+        self.n_arms = len(self.p_array_mu)
         self.n_obs_every_arm = get_size_zratio(self.p_array_mu[0], self.p_array_mu[1], alpha=0.05, beta=0.2)
         self.batch_size_share_mu = batch_size_share_mu
         self.alphas = np.repeat(1.0, self.n_arms)
@@ -134,27 +153,31 @@ class BatchThompson:
         self.probability_superiority_tuple = (0.5, 0.5)
         self.expected_losses = 0
         self.k = (0, 0)  # number of winners for every step
+        self.criterion_dict = criterion_dict
+        self.cumulative_observations = defaultdict(str)
+        for key in self.criterion_dict.keys():
+            self.cumulative_observations[key] = np.repeat(0, self.n_arms)
 
-       # Generating data for historic split
-        np.random.seed(np.uint16(np.random.random(size=1) * 100).item())
-        self.data = np.random.binomial(n=[1,1], p=self.p_array_mu,
+        # Generating data for historic split
+        np.random.seed(seed)
+        self.data = np.random.binomial(n=[1, 1], p=self.p_array_mu,
                                        size=(self.n_obs_every_arm, self.n_arms))
 
         # print(f"Нужно наблюдений в каждую руку для выявления эффекта в классическом АБ-тесте: "
         #       f"{self.n_obs_every_arm}")
 
-    def update_beta_params(self, batch_data: np.array, method:str):
+    def update_beta_params(self, batch_data: np.array, method: str):
         if method == "summation":
             self.alphas += np.nansum(batch_data, axis=0)
             self.bethas += np.sum(batch_data == 0, axis=0)
         elif method == "normalization":
-            S_list =  np.nansum(batch_data, axis=0)  # number of successes in within batch
+            S_list = np.nansum(batch_data, axis=0)  # number of successes in within batch
             F_list = np.sum(batch_data == 0, axis=0)
             M = batch_data.shape[0]
             K = self.n_arms
 
-            adding_alphas = (M / K ) * (np.array(S_list) / (np.array(S_list) + np.array(F_list)))
-            adding_bethas = (M / K ) * (1 - np.array(S_list) / (np.array(S_list) + np.array(F_list)))
+            adding_alphas = (M / K) * (np.array(S_list) / (np.array(S_list) + np.array(F_list)))
+            adding_bethas = (M / K) * (1 - np.array(S_list) / (np.array(S_list) + np.array(F_list)))
 
             adding_alphas = np.nan_to_num(adding_alphas)
             adding_bethas = np.nan_to_num(adding_bethas)
@@ -169,10 +192,10 @@ class BatchThompson:
             self.probability_superiority_tuple = (prob_superiority, 1 - prob_superiority)
         self.expected_losses = expected_loss(self.alphas, self.bethas)
 
-    def split_data_historic(self, cumulative_observations: List, batch_split_obs: List):
+    def split_data_historic(self, batch_split_obs: List):
         """
         Split data in every batch iteration
-        :param cumulative_observations: list with cumulative observations for every arm
+        :param self.cumulative_observations: list with cumulative observations for every arm
         :param batch_split_obs: how many observation we must extract this iter
         :return:
         """
@@ -181,9 +204,8 @@ class BatchThompson:
         data_split[:] = np.nan
         for i in range(self.n_arms):
             data_split[:batch_split_obs[i], i] = \
-                self.data[cumulative_observations[i] : cumulative_observations[i] + batch_split_obs[i], i]
+                self.data[self.cumulative_observations[i]: self.cumulative_observations[i] + batch_split_obs[i], i]
         return data_split
-
 
     def split_data_random(self, batch_split_obs: np.array):
         """
@@ -193,7 +215,7 @@ class BatchThompson:
         """
         data_split = np.empty((np.max(batch_split_obs), self.n_arms))
         data_split[:] = np.nan
-        p_array = self.p_array_mu + np.random.normal(0, self.p_array_mu/3, size=self.n_arms)
+        p_array = self.p_array_mu + np.random.normal(0, self.p_array_mu / 3, size=self.n_arms)
         p_array = np.where(p_array < 0, 0, p_array)
         p_array = np.where(p_array > 1, 0, p_array)
         for i in range(self.n_arms):
@@ -206,22 +228,24 @@ class BatchThompson:
     def start_experiment(self):
         probability_superiority_step_list: List[ndarray] = []  # how share of traffic changes across experiment
         observations_step_list: List[ndarray] = []  # how many observations is cumulated in every step
-        cumulative_observations = np.repeat(0, self.n_arms)  # how many observations we extract every iter for every arm
+        self.cumulative_observations = np.repeat(0,
+                                                 self.n_arms)  # how many observations we extract every iter for every arm
 
-        while np.max(cumulative_observations) < self.n_obs_every_arm:
+        while np.max(self.cumulative_observations) < self.n_obs_every_arm:
             batch_size_share = self.batch_size_share_mu + np.random.normal(0, self.batch_size_share_mu / 3)
             batch_size = batch_size_share * self.n_obs_every_arm * 2
             if batch_size < 2:
                 batch_size = 2
-            batch_split_obs = (batch_size * np.array(self.probability_superiority_tuple)).astype(np.uint16)  # get number of observations every arm
-            cumulative_observations += batch_split_obs
-            # batch_data = batchT.split_data_historic(cumulative_observations=cumulative_observations,
+            batch_split_obs = (batch_size * np.array(self.probability_superiority_tuple)).astype(
+                np.uint16)  # get number of observations every arm
+            self.cumulative_observations += batch_split_obs
+            # batch_data = batchT.split_data_historic(self.cumulative_observations=self.cumulative_observations,
             #                                         batch_split_obs=batch_split_obs) # based on earlier generated distr
             batch_data = self.split_data_random(batch_split_obs)  # based on generate batch online
 
             # Updating all
             self.update_beta_params(batch_data, method="normalization")  # update beta distributions parameters
-            self.update_prob_super(method_calc="integrating") # update probability superiority
+            self.update_prob_super(method_calc="integrating")  # update probability superiority
             self.k += np.round(self.probability_superiority_tuple, 0)
 
             # Append for resulting
@@ -229,7 +253,7 @@ class BatchThompson:
             observations_step_list.append(batch_split_obs)
 
             # stopping_criterion = (np.max(self.probability_superiority_tuple) >= 0.99) | \
-            #                      (np.max(cumulative_observations) >  self.n_obs_every_arm)
+            #                      (np.max(self.cumulative_observations) >  self.n_obs_every_arm)
         return np.round(probability_superiority_step_list, 3), observations_step_list
 
 
@@ -237,39 +261,43 @@ class BatchThompsonMixed(BatchThompson):
     """
     Add k and l - number of winners on previous steps
     """
-    def start_experiment(self, criterion_dict: Dict, multiarmed=False):
+
+    def update_criterion_stop(self, criterion_name, criterion_value) -> bool:
+        if criterion_name == "probability_superiority":
+            return np.sum(self.cumulative_observations[criterion_name]) < self.n_obs_every_arm * 2
+                # (np.max(self.probability_superiority_tuple) < criterion_value) & \\
+            # (np.sum(self.cumulative_observations[criterion_name]) < self.n_obs_every_arm * 2)  # condition with True
+
+    def start_experiment(self, multiarmed=False):
         """
         :param criterion_dict:
         :param multiarmed == False -> Bayesian batched
         :return:
         """
         winner_dict = defaultdict(str)
-        intermediate_dict = defaultdict
-        for crit_n, crit_value in criterion_dict.items():
-            if crit_n == "probability_superiority":
-                criterion = np.max(self.probability_superiority_tuple) < crit_value  # condition with True
-            if crit_n == "expected_loss":
-                criterion = np.max(self.expected_losses) < crit_value
-            if crit_n == "prob_super_exp_loss":
-                criterion = (np.max(self.probability_superiority_tuple) < crit_value[0]) & \
-                            (np.max(self.expected_losses) < crit_value[1])
-            if crit_n == "full_one_of_the_arm":
-                criterion = np.max(cumulative_observations) < self.n_obs_every_arm
+        intermediate_dict = defaultdict(str)
+        for crit_name, crit_value in self.criterion_dict.items():
             probability_superiority_step_list: List[ndarray] = []  # how share of traffic changes across experiment
             observations_step_list: List[ndarray] = []  # how many observations is cumulated in every step
             expected_loss_step_list: List[ndarray] = []
-            # Plots
-            # folder, file_name = self.experiment_name, str(self.p1) + "_" + str(self.p2)
-            cumulative_observations = np.repeat(0, self.n_arms)  # how many observations we extract every iter for every arm
+            k_list_iter: List[ndarray] = []
             k_array, l_array = np.array([0, 0]), np.array([0, 0])
             k_list_iter = [k_array]
-            while criterion:
-                iter = 1
+            # if crit_n == "expected_loss":
+            #     criterion = np.max(self.expected_losses) < crit_value
+            # if crit_n == "prob_super_exp_loss":
+            #     criterion = (np.max(self.probability_superiority_tuple) < crit_value[0]) & \
+            #                 (np.max(self.expected_losses) < crit_value[1])
+            # if crit_n == "full_one_of_the_arm":
+            #     criterion = np.max(self.cumulative_observations) < self.n_obs_every_arm
+            while self.update_criterion_stop(crit_name, crit_value):
+                iteration: int = 1
                 batch_size_share = self.batch_size_share_mu + np.random.normal(0, self.batch_size_share_mu / 3)
                 batch_size = batch_size_share * self.n_obs_every_arm * 2
-                if batch_size < 2: batch_size = 2
+                if batch_size < 2:
+                    batch_size = 2
                 # Add condition from paper1 algo
-                if sum(2 ** l_array >= k_array) > 0: # condition to split 50 / 50
+                if sum(2 ** l_array >= k_array) > 0:  # condition to split 50 / 50
                     prob_sup_array = np.array((0.5, 0.5))
                     k_array = list(map(lambda x: x + 1, k_array))
                 else:
@@ -279,43 +307,35 @@ class BatchThompsonMixed(BatchThompson):
                 k_list_iter.append(k_array)
                 l_array = np.array([k_array[0] - k_array[1], k_array[1] - k_array[0]])
                 l_array = np.where(l_array < 0, 0, l_array)
-                iter += 1
+                iteration += 1
 
                 # Choose split
                 if multiarmed is True:
-                    batch_split_obs = (batch_size * prob_sup_array).astype(np.uint16)  # get number of observations per every arm
+                    batch_split_obs = (batch_size * prob_sup_array).astype(
+                        np.uint16)  # get number of observations per every arm
                 else:
-                    batch_split_obs = (batch_size * np.array([0.5] * self.n_arms)).astype(np.uint16)  # get number of observations per every arm
-                cumulative_observations += batch_split_obs
+                    batch_split_obs = (batch_size * np.array([0.5] * self.n_arms)).astype(
+                        np.uint16)  # get number of observations per every arm
+                self.cumulative_observations[crit_name] += batch_split_obs
+                # print(np.max(self.cumulative_observations))
                 batch_data = self.split_data_random(batch_split_obs)  # based on generate batch online
 
                 # Updating all
                 self.update_beta_params(batch_data, method="normalization")  # update beta distributions parameters
-                self.update_prob_super(method_calc="integrating") # update probability superiority
+                self.update_prob_super(method_calc="integrating")  # update probability superiority
 
                 # Append for resulting
                 probability_superiority_step_list.append(self.probability_superiority_tuple)
                 observations_step_list.append(batch_split_obs)
                 expected_loss_step_list.append(self.expected_losses)
-            winner_dict[crit_n] = np.argmax(self.probability_superiority_tuple)
-            intermediate_dict[crit_n] = (np.round(probability_superiority_step_list, 3), np.round(expected_loss_step_list, 3),
-                                         observations_step_list, k_list_iter
-                                         )
+            probability_winner = np.max(self.probability_superiority_tuple)
+            if probability_winner > crit_value:
+                winner_dict[crit_name] = np.argmax(self.probability_superiority_tuple)
+            else:
+                winner_dict[crit_name] = "not_winner"
+            intermediate_dict[crit_name] = (np.round(probability_superiority_step_list, 3),
+                                            np.round(expected_loss_step_list, 3),
+                                            observations_step_list,
+                                            k_list_iter
+                                            )
         return winner_dict, intermediate_dict
-
-def expected_loss(alphas, betas, size=10000):
-    """
-    Calculate expected losses for beta distribution
-    :param size: number of random values
-    :param alphas: alpha params
-    :param betas: beta params
-    :return:
-    """
-    control_thetas = beta.rvs(alphas[0], betas[0], size=size)
-    test_thetas = beta.rvs(alphas[1], betas[1], size=size)
-    difference = test_thetas - control_thetas
-    difference = np.where(difference < 0, 0, difference)
-    prob_super0 = np.count_nonzero(difference) / size  # probability superiority for
-    expected_losses = np.sum(difference) / size
-
-    return expected_losses

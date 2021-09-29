@@ -10,8 +10,9 @@ from scipy.stats import jarque_bera
 from scipy.stats import mannwhitneyu
 from scipy.stats import shapiro
 from scipy.stats import ttest_ind
-from AB.src.bootstrap import bootstrap_jit_parallel
+from src.bootstrap import bootstrap_jit_parallel
 from statsmodels.stats.proportion import proportions_ztest
+import joblib
 
 
 def get_size_student(mean1, mean2, alpha, beta, sd=None):
@@ -308,19 +309,24 @@ class ABTest:
 
 
 class ABConversionTest:
-    def __init__(self, p_control: float, mde: float, batch_size_share_mu: float, seed):
-        self.p_array_mu = np.array([p_control, (1 + mde * p_control)])
+    def __init__(self, p_control: float, mde: float, batch_size_share_mu: float, seed,
+                 alpha=0.05, beta=0.2):
+        self.p_array_mu = np.array([p_control, (1 + mde) * p_control])
         self.seed = seed
-        self.n_arms = len(self.p_list_mu)
-        self.n_obs_every_arm = get_size_zratio(self.p_array_mu[0], self.p_array_mu[1], alpha=0.05, beta=0.2)
+        self.n_arms = self.p_array_mu.shape[0]
+        self.alpha, self.beta = alpha, beta
+        self.n_obs_every_arm = get_size_zratio(self.p_array_mu[0], self.p_array_mu[1],
+                                               alpha=self.alpha, beta=self.beta)
         self.__all_comparisons_df = pd.DataFrame(
-            index=pd.MultiIndex.from_tuples(list(combinations(np.arange(self.data.shape[1]), 2)),
+            index=pd.MultiIndex.from_tuples(list(combinations(np.arange(self.n_arms), 2)),
                                             names=['var1', 'var2']),
-            columns=['statistic', 'p_value'])
+            columns=['diff_mean', 'z_statistic', 'p_value_zstat', 'se_zstat',
+                     'bs_difference_means', 'p_value_bs', 'bs_confident_interval',
+                     'winner_z_test', 'winner_bootstrap'])
 
     def start_experiment(self, n_boots=10000):
         np.random.seed(self.seed)
-        data = np.random.binomial(n=[1] * self.n_arms, p=self.p_array_mu)
+        data = np.random.binomial(n=[1] * self.n_arms, p=self.p_array_mu, size=(self.n_obs_every_arm, self.n_arms))
         for index, row in self.__all_comparisons_df.iterrows():
             data1, data2 = data[:, index[0]], data[:, index[1]]
             self.__all_comparisons_df.loc[index, "diff_mean"] = data1.mean() - data2.mean()
@@ -329,32 +335,69 @@ class ABConversionTest:
 
             self.__all_comparisons_df.loc[index, "z_statistic"] = z_stat_ratio
             self.__all_comparisons_df.loc[index, "p_value_zstat"] = p_value_ztest
-            self.__all_comparisons_df.loc[index, "se_zstat"] =
+            self.__all_comparisons_df.loc[index, "se_zstat"] = np.sqrt(
+                (data1.mean() * (1 - data1.mean()) + data2.mean() * (1 - data2.mean())) / self.n_obs_every_arm)
 
 
             data1_bs_sample_means = bootstrap_jit_parallel(data1, n_boots=n_boots)
             data2_bs_sample_means = bootstrap_jit_parallel(data2, n_boots=n_boots)
             difference_bs_means = data1_bs_sample_means - data2_bs_sample_means
             self.__all_comparisons_df.at[index, "bs_difference_means"] = difference_bs_means
-            self.__all_comparisons_df.loc[index, "mean1_mean2_diff"] = np.mean(data1_bs_sample_means) - np.mean(data2_bs_sample_means)
             self.__all_comparisons_df.loc[index, "p_value_bs"] = 2 * np.min([np.sum(difference_bs_means < 0) / n_boots,
                                                                              1 - np.sum(difference_bs_means < 0) / n_boots])
         # Sort different ways
         # 1 way - z-test
         self.__all_comparisons_df.sort_values("p_value_zstat", inplace=True)
-        self.__all_comparisons_df['i'] = np.arange(self.__all_comparisons_df.shape[0]) + 1
-        self.__all_comparisons_df['alpha_correction'] = (self.__all_comparisons_df['i'] * self.alpha) / \
+        self.__all_comparisons_df['i_ztest'] = np.arange(self.__all_comparisons_df.shape[0]) + 1
+        self.__all_comparisons_df['alpha_correction_zstat'] = (self.__all_comparisons_df['i_ztest'] * self.alpha) / \
                                                          self.__all_comparisons_df.shape[0]
         self.__all_comparisons_df['stat_significance_z_test'] = np.where(self.__all_comparisons_df['p_value_zstat'] >
-                                                                         self.__all_comparisons_df['alpha_correction'],
+                                                                         self.__all_comparisons_df['alpha_correction_zstat'],
                                                                          False, True)
+        self.__all_comparisons_df['z_crit_alpha'] = stats.norm.ppf(1 - self.__all_comparisons_df['alpha_correction_zstat'] / 2)
+        self.__all_comparisons_df['ci_lower_ztest'] = self.__all_comparisons_df.loc[index, "diff_mean"] - \
+                                                      self.__all_comparisons_df['z_crit_alpha'] * self.__all_comparisons_df.loc[index, "se_zstat"]
+        self.__all_comparisons_df['ci_upper_ztest'] = self.__all_comparisons_df.loc[index, "diff_mean"] + \
+                                                      self.__all_comparisons_df['z_crit_alpha'] * self.__all_comparisons_df.loc[index, "se_zstat"]
 
+        # 2 way - bootstrap
+        self.__all_comparisons_df.sort_values(['p_value_bs'], inplace=True)
+        self.__all_comparisons_df['i_bootstrap'] = np.arange(self.__all_comparisons_df.shape[0]) + 1
+        self.__all_comparisons_df['alpha_correction_bs'] = (self.__all_comparisons_df['i_bootstrap'] * self.alpha) / \
+                                                                self.__all_comparisons_df.shape[0]
 
+        # Create confident intervals for difference with correction significance level
+        for index, row in self.__all_comparisons_df.iterrows():
+            self.__all_comparisons_df.at[index, 'bs_confident_interval'] = get_bs_confidence_interval(
+                self.__all_comparisons_df.loc[index, "bs_difference_means"],
+                alpha=self.__all_comparisons_df.loc[index, 'alpha_correction_bs'])
+        self.__all_comparisons_df["ci_lower_bs"] = self.__all_comparisons_df.loc[:, "bs_confident_interval"].\
+            apply(lambda x: x[0])
+        self.__all_comparisons_df["ci_upper_bs"] = self.__all_comparisons_df.loc[:, "bs_confident_interval"].\
+            apply(lambda x: x[1])
 
+        self.__all_comparisons_df['stat_significance_bs'] = np.where(
+            (self.__all_comparisons_df['ci_lower_bs'] > 0) |
+            (self.__all_comparisons_df['ci_upper_bs'] < 0), True, False)
 
+        # Determine winners
+        for index, row in self.__all_comparisons_df.iterrows():
+            self.__all_comparisons_df.loc[index, "winner_z_test"] = np.where(
+                (row['stat_significance_z_test'] is True) &
+                (row['diff_mean'] < 0), str(index[1]), np.where(
+                    row['stat_significance_z_test'] is True, str(index[0]), "not_winner")).item()
+        # winner_count_bootstrap = self.__all_comparisons_df['winner'].value_counts()
 
+        for index, row in self.__all_comparisons_df.iterrows():
+            self.__all_comparisons_df.loc[index, "winner_bootstrap"] = np.where(
+                (row['stat_significance_bs'] is True) &
+                (row['diff_mean'] < 0), str(index[1]), np.where(
+                    row['stat_significance_bs'] is True, str(index[0]), "not_winner")).item()
 
-
+        winner_df = {"zratio": self.__all_comparisons_df['winner_z_test'].values[0],
+                     "bootstrap": self.__all_comparisons_df['winner_bootstrap'].values[0]}
+        intermediate_df = self.__all_comparisons_df.copy()
+        return winner_df, intermediate_df.T
 
 
 def plot_alpha_power(data: np.ndarray, label: str, ax: Axes,
