@@ -49,7 +49,7 @@ def calculate_bayesian_probability(num_arms, N, random_seed, a, b):
 
 
 class BayesianConversionTest:
-    def __init__(self, p_control: float, mde: float, criterion_dict: Dict, alpha=0.05, beta=0.2, seed=1):
+    def __init__(self, p_control: float, mde: float, criterion_dict: Dict, alpha=0.05, beta=0.2):
         self.p_array_mu = np.array([p_control, (1 + mde) * p_control])
         self.n_arms = self.p_array_mu.shape[0]
         self.alpha, self.beta = alpha, beta
@@ -60,8 +60,6 @@ class BayesianConversionTest:
         self.n_obs_every_arm = 1000
         if self.n_obs_every_arm == 0:
             self.n_obs_every_arm = 100
-
-        self.seed = seed
         self.criterion_dict = criterion_dict
         self.probability_superiority_tuple = (0.5, 0.5)
         self.expected_losses = (0, 0)
@@ -93,10 +91,10 @@ class BayesianConversionTest:
             self.probability_superiority_tuple = (prob_superiority, 1 - prob_superiority)
         self.expected_losses = expected_loss(self.alphas, self.bethas)
 
-    def start_experiment(self):
+    def start_experiment(self, seed=1):
         winner_dict = {key: [] for key in self.criterion_dict.keys()}
         intermediate_dict = {key: [] for key in self.criterion_dict.keys()}
-        np.random.seed(self.seed)
+        np.random.seed(seed)
         data = np.random.binomial(n=[1] * self.n_arms, p=self.p_array_mu, size=(self.n_obs_every_arm, self.n_arms))
         self.update_beta_params(data, "summation")
         self.update_prob_super(method_calc="integrating")
@@ -111,3 +109,32 @@ class BayesianConversionTest:
                                             self.n_obs_every_arm)
         return winner_dict, intermediate_dict
 
+# results_all[0][1]['probability_superiority'][1]
+#
+# results_all[1]
+# print(winner_dict)
+#
+#
+#
+# import math
+#
+# def calc_ab(alpha_a, beta_a, alpha_b, beta_b):
+#     '''
+#     See http://www.evanmiller.org/bayesian-ab-testing.html
+#     αA is one plus the number of successes for A
+#     βA is one plus the number of failures for A
+#     αB is one plus the number of successes for B
+#     βB is one plus the number of failures for B
+#     '''
+#     total = 0.0
+#     for i in range(alpha_b):
+#         num = math.lgamma(alpha_a+i) + math.lgamma(beta_a+beta_b) + math.lgamma(1+i+beta_b) + math.lgamma(alpha_a+beta_a)
+#         den = math.log(beta_b+i) + math.lgamma(alpha_a+i+beta_a+beta_b) + math.lgamma(1+i) + math.lgamma(beta_b) + math.lgamma(alpha_a) + math.lgamma(beta_a)
+#
+#         total += math.exp(num - den)
+#     return total
+#
+# print(calc_ab(1600+1,1500+1,3200+1,3300+1))
+
+# expected_loss([65, 32], [1263 - 65, 1084 - 32]) * 100
+# calc_prob_between([65, 32], [1263 - 65, 1084 - 32])

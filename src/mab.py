@@ -143,7 +143,7 @@ def expected_loss(alphas, betas, size=10000):
 
 
 class BatchThompson:
-    def __init__(self, p_control: float, mde: float, batch_size_share_mu: float, criterion_dict: Dict, seed=1):
+    def __init__(self, p_control: float, mde: float, batch_size_share_mu: float, criterion_dict: Dict, multiarmed=False):
         self.p_array_mu = np.array([p_control, (1 + mde) * p_control])
         self.n_arms = len(self.p_array_mu)
         self.n_obs_every_arm = get_size_zratio(self.p_array_mu[0], self.p_array_mu[1], alpha=0.05, beta=0.2)
@@ -155,13 +155,14 @@ class BatchThompson:
         self.k = (0, 0)  # number of winners for every step
         self.criterion_dict = criterion_dict
         self.cumulative_observations = defaultdict(str)
+        self.multiarmed = multiarmed
         for key in self.criterion_dict.keys():
             self.cumulative_observations[key] = np.repeat(0, self.n_arms)
 
-        # Generating data for historic split
-        np.random.seed(seed)
-        self.data = np.random.binomial(n=[1, 1], p=self.p_array_mu,
-                                       size=(self.n_obs_every_arm, self.n_arms))
+        # # Generating data for historic split
+        # np.random.seed(seed)
+        # self.data = np.random.binomial(n=[1, 1], p=self.p_array_mu,
+        #                                size=(self.n_obs_every_arm, self.n_arms))
 
         # print(f"Нужно наблюдений в каждую руку для выявления эффекта в классическом АБ-тесте: "
         #       f"{self.n_obs_every_arm}")
@@ -207,12 +208,14 @@ class BatchThompson:
                 self.data[self.cumulative_observations[i]: self.cumulative_observations[i] + batch_split_obs[i], i]
         return data_split
 
-    def split_data_random(self, batch_split_obs: np.array):
+    def split_data_random(self, batch_split_obs: np.array, seed: int = 1):
         """
 
         :param batch_split_obs: size for every arm
+        :param seed - seed for random numbers
         :return:
         """
+        np.random.seed(seed)
         data_split = np.empty((np.max(batch_split_obs), self.n_arms))
         data_split[:] = np.nan
         p_array = self.p_array_mu + np.random.normal(0, self.p_array_mu / 3, size=self.n_arms)
@@ -225,7 +228,7 @@ class BatchThompson:
 
         return data_split
 
-    def start_experiment(self):
+    def start_experiment(self, seed=1):
         probability_superiority_step_list: List[ndarray] = []  # how share of traffic changes across experiment
         observations_step_list: List[ndarray] = []  # how many observations is cumulated in every step
         self.cumulative_observations = np.repeat(0,
@@ -241,7 +244,7 @@ class BatchThompson:
             self.cumulative_observations += batch_split_obs
             # batch_data = batchT.split_data_historic(self.cumulative_observations=self.cumulative_observations,
             #                                         batch_split_obs=batch_split_obs) # based on earlier generated distr
-            batch_data = self.split_data_random(batch_split_obs)  # based on generate batch online
+            batch_data = self.split_data_random(batch_split_obs, seed=seed)  # based on generate batch online
 
             # Updating all
             self.update_beta_params(batch_data, method="normalization")  # update beta distributions parameters
@@ -268,10 +271,11 @@ class BatchThompsonMixed(BatchThompson):
                 # (np.max(self.probability_superiority_tuple) < criterion_value) & \\
             # (np.sum(self.cumulative_observations[criterion_name]) < self.n_obs_every_arm * 2)  # condition with True
 
-    def start_experiment(self, multiarmed=False):
+    def start_experiment(self, seed=1):
         """
         :param criterion_dict:
         :param multiarmed == False -> Bayesian batched
+        :param seed - random seed
         :return:
         """
         winner_dict = defaultdict(str)
@@ -310,7 +314,7 @@ class BatchThompsonMixed(BatchThompson):
                 iteration += 1
 
                 # Choose split
-                if multiarmed is True:
+                if self.multiarmed is True:
                     batch_split_obs = (batch_size * prob_sup_array).astype(
                         np.uint16)  # get number of observations per every arm
                 else:
@@ -318,7 +322,7 @@ class BatchThompsonMixed(BatchThompson):
                         np.uint16)  # get number of observations per every arm
                 self.cumulative_observations[crit_name] += batch_split_obs
                 # print(np.max(self.cumulative_observations))
-                batch_data = self.split_data_random(batch_split_obs)  # based on generate batch online
+                batch_data = self.split_data_random(batch_split_obs, seed=seed)  # based on generate batch online
 
                 # Updating all
                 self.update_beta_params(batch_data, method="normalization")  # update beta distributions parameters

@@ -13,6 +13,7 @@ from scipy.stats import ttest_ind
 from src.bootstrap import bootstrap_jit_parallel
 from statsmodels.stats.proportion import proportions_ztest
 import joblib
+import gc
 
 
 def get_size_student(mean1, mean2, alpha, beta, sd=None):
@@ -309,10 +310,8 @@ class ABTest:
 
 
 class ABConversionTest:
-    def __init__(self, p_control: float, mde: float, batch_size_share_mu: float, seed,
-                 alpha=0.05, beta=0.2):
+    def __init__(self, p_control: float, mde: float, alpha=0.05, beta=0.2):
         self.p_array_mu = np.array([p_control, (1 + mde) * p_control])
-        self.seed = seed
         self.n_arms = self.p_array_mu.shape[0]
         self.alpha, self.beta = alpha, beta
         self.n_obs_every_arm = get_size_zratio(self.p_array_mu[0], self.p_array_mu[1],
@@ -324,8 +323,8 @@ class ABConversionTest:
                      'bs_difference_means', 'p_value_bs', 'bs_confident_interval',
                      'winner_z_test', 'winner_bootstrap'])
 
-    def start_experiment(self, n_boots=10000):
-        np.random.seed(self.seed)
+    def start_experiment(self, seed=1, n_boots=10000):
+        np.random.seed(seed)
         data = np.random.binomial(n=[1] * self.n_arms, p=self.p_array_mu, size=(self.n_obs_every_arm, self.n_arms))
         for index, row in self.__all_comparisons_df.iterrows():
             data1, data2 = data[:, index[0]], data[:, index[1]]
@@ -337,8 +336,6 @@ class ABConversionTest:
             self.__all_comparisons_df.loc[index, "p_value_zstat"] = p_value_ztest
             self.__all_comparisons_df.loc[index, "se_zstat"] = np.sqrt(
                 (data1.mean() * (1 - data1.mean()) + data2.mean() * (1 - data2.mean())) / self.n_obs_every_arm)
-
-
             data1_bs_sample_means = bootstrap_jit_parallel(data1, n_boots=n_boots)
             data2_bs_sample_means = bootstrap_jit_parallel(data2, n_boots=n_boots)
             difference_bs_means = data1_bs_sample_means - data2_bs_sample_means
@@ -397,6 +394,7 @@ class ABConversionTest:
         winner_df = {"zratio": self.__all_comparisons_df['winner_z_test'].values[0],
                      "bootstrap": self.__all_comparisons_df['winner_bootstrap'].values[0]}
         intermediate_df = self.__all_comparisons_df.copy()
+        gc.collect()
         return winner_df, intermediate_df.T
 
 
