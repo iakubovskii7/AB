@@ -49,20 +49,13 @@ def calculate_bayesian_probability(num_arms, N, random_seed, a, b):
 
 
 class BayesianConversionTest:
-    def __init__(self, p_control: float, mde: float, criterion_dict: Dict, alpha=0.05, beta=0.2):
-        self.p_array_mu = np.array([p_control, (1 + mde) * p_control])
+    def __init__(self, p_control_percent: float, mde_percent: float, criterion_dict: Dict, alpha=0.05, beta=0.2):
+        p1, mde_test = p_control_percent / 100, -(p_control_percent * mde_percent) / 10000
+        p2 = p1 - mde_test
+        self.p_array_mu = np.array([p1, p2])
         self.n_arms = self.p_array_mu.shape[0]
-        self.alpha, self.beta = alpha, beta
-        self.alphas = np.repeat(1.0, self.n_arms)
-        self.bethas = np.repeat(1.0, self.n_arms)
-        self.n_obs_every_arm = get_size_zratio(self.p_array_mu[0], self.p_array_mu[1],
-                                               alpha=self.alpha, beta=self.beta)
-        self.n_obs_every_arm = 1000
-        if self.n_obs_every_arm == 0:
-            self.n_obs_every_arm = 100
         self.criterion_dict = criterion_dict
-        self.probability_superiority_tuple = (0.5, 0.5)
-        self.expected_losses = (0, 0)
+        self.n_obs_every_arm = get_size_zratio(p_control_percent, mde_percent, alpha=alpha, beta=beta)
     # TODO: expand for multiple testing case
 
     def update_beta_params(self, batch_data: np.array, method: str):
@@ -92,6 +85,11 @@ class BayesianConversionTest:
         self.expected_losses = expected_loss(self.alphas, self.bethas)
 
     def start_experiment(self, seed=1):
+        self.alphas = np.repeat(1.0, self.n_arms)
+        self.bethas = np.repeat(1.0, self.n_arms)
+        self.probability_superiority_tuple = (0.5, 0.5)
+        self.expected_losses = (0, 0)
+
         winner_dict = {key: [] for key in self.criterion_dict.keys()}
         intermediate_dict = {key: [] for key in self.criterion_dict.keys()}
         np.random.seed(seed)
@@ -103,7 +101,7 @@ class BayesianConversionTest:
                 if np.max(self.probability_superiority_tuple) > crit_value:
                     winner_dict[crit_name] = np.argmax(self.probability_superiority_tuple)
                 else:
-                    winner_dict[crit_name] = "not_winner"
+                    winner_dict[crit_name] = -1  # it means not winner
             intermediate_dict[crit_name] = (self.probability_superiority_tuple,
                                             self.expected_losses,
                                             self.n_obs_every_arm)

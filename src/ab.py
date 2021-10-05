@@ -26,11 +26,26 @@ def get_size_student(mean1, mean2, alpha, beta, sd=None):
     return np.uint16(n)
 
 
-def get_size_zratio(p1, p2, alpha, beta):
+def get_size_zratio(p_control_percent, mde_percent, alpha, beta, type="equivalence"):
+    """
+    :param p_control_percent: conversion rate in percent (10 means 10% conversion)
+    :param mde_percent: mde in percent
+    :param alpha: error I
+    :param beta: error II
+    :param type: hypothesis
+    :return:
+    """
     z_alpha = stats.norm.ppf(1 - alpha / 2)
     z_beta = stats.norm.ppf(1 - beta)
-    n = (p1 * (1 - p1) + p2 * (1 - p2)) * ((z_alpha + z_beta) / (p1 - p2)) ** 2
-    return np.uint16(n)
+    # Rewrite to notice book 2007 year (SAMPLE SIZE CALCULATION FOR COMPARING PROPORTIONS)
+    p1, mde_test = p_control_percent / 100, -(p_control_percent * mde_percent) / 10000
+    p2 = p1 - mde_test
+    if mde_percent == 0:
+        n = 10000
+    # TODO: add three types of hypothesis
+    elif type == "equivalence":
+        n = ((z_alpha + z_beta) ** 2 / (p1 - p2) ** 2) * (p1 * (1 - p1) + p2 * (1-p2))
+    return np.uint32(n)
 
 
 def normality_tests(data, alpha=0.05):
@@ -298,6 +313,7 @@ class ABTest:
         return all_comparisons_bootstrap_df, winner_count_bootstrap
 
     def start_experiment(self):
+        global winner_bootstrap_idx, winner_mannwhitney_idx, winner_student_idx
         all_comparisons_student_df, winner_count_student = self.student_multiple_test()
         all_comparisons_mannwhitney_df, winner_count_mannwhitney = self.mann_whitney_multiple_test()
         all_comparisons_bootstrap_df, winner_count_bootstrap = self.bootstrap_multiple_test()
@@ -311,15 +327,15 @@ class ABTest:
 
 class ABConversionTest:
     def __init__(self, p_control: float, mde: float, alpha=0.05, beta=0.2):
-        self.p_array_mu = np.array([p_control, (1 + mde) * p_control])
+        self.p_array_mu = np.array([p_control, p_control - mde])
         self.n_arms = self.p_array_mu.shape[0]
         self.alpha, self.beta = alpha, beta
-        self.n_obs_every_arm = get_size_zratio(self.p_array_mu[0], self.p_array_mu[1],
+        self.n_obs_every_arm = get_size_zratio(self.p_array_mu[0], mde,
                                                alpha=self.alpha, beta=self.beta)
         self.__all_comparisons_df = pd.DataFrame(
             index=pd.MultiIndex.from_tuples(list(combinations(np.arange(self.n_arms), 2)),
                                             names=['var1', 'var2']),
-            columns=['diff_mean', 'z_statistic', 'p_value_zstat', 'se_zstat',
+            columns=['n_observations', 'diff_mean', 'z_statistic', 'p_value_zstat', 'se_zstat',
                      'bs_difference_means', 'p_value_bs', 'bs_confident_interval',
                      'winner_z_test', 'winner_bootstrap'])
 
@@ -391,6 +407,7 @@ class ABConversionTest:
                 (row['diff_mean'] < 0), str(index[1]), np.where(
                     row['stat_significance_bs'] is True, str(index[0]), "not_winner")).item()
 
+        self.__all_comparisons_df['n_observation'] = self.n_obs_every_arm
         winner_df = {"zratio": self.__all_comparisons_df['winner_z_test'].values[0],
                      "bootstrap": self.__all_comparisons_df['winner_bootstrap'].values[0]}
         intermediate_df = self.__all_comparisons_df.copy()

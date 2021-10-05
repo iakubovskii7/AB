@@ -5,7 +5,7 @@ from random import choices
 from typing import List, Dict, Tuple
 import matplotlib.pyplot as plt
 from scipy.stats import beta
-
+import gc
 import bootstrapped.bootstrap as bs
 import bootstrapped.stats_functions as bs_stats
 import numpy as np
@@ -143,22 +143,16 @@ def expected_loss(alphas, betas, size=10000):
 
 
 class BatchThompson:
-    def __init__(self, p_control: float, mde: float, batch_size_share_mu: float, criterion_dict: Dict, multiarmed=False):
-        self.p_array_mu = np.array([p_control, (1 + mde) * p_control])
+    def __init__(self, p_control_percent: float, mde_percent: float, batch_size_share_mu: float, criterion_dict: Dict,
+                 multiarmed=False):
+        p1, mde_test = p_control_percent / 100, -(p_control_percent * mde_percent) / 10000
+        p2 = p1 - mde_test
+        self.p_array_mu = np.array([p1, p2])
         self.n_arms = len(self.p_array_mu)
-        self.n_obs_every_arm = get_size_zratio(self.p_array_mu[0], self.p_array_mu[1], alpha=0.05, beta=0.2)
+        self.n_obs_every_arm = get_size_zratio(p_control_percent, mde_percent, alpha=0.05, beta=0.2)
         self.batch_size_share_mu = batch_size_share_mu
-        self.alphas = np.repeat(1.0, self.n_arms)
-        self.bethas = np.repeat(1.0, self.n_arms)
-        self.probability_superiority_tuple = (0.5, 0.5)
-        self.expected_losses = 0
-        self.k = (0, 0)  # number of winners for every step
         self.criterion_dict = criterion_dict
-        self.cumulative_observations = defaultdict(str)
         self.multiarmed = multiarmed
-        for key in self.criterion_dict.keys():
-            self.cumulative_observations[key] = np.repeat(0, self.n_arms)
-
         # # Generating data for historic split
         # np.random.seed(seed)
         # self.data = np.random.binomial(n=[1, 1], p=self.p_array_mu,
@@ -187,7 +181,7 @@ class BatchThompson:
             self.bethas += adding_bethas
         return self.alphas, self.bethas
 
-    def update_prob_super(self, method_calc) -> Tuple:
+    def update_prob_super(self, method_calc):
         if method_calc == 'integrating':
             prob_superiority = calc_prob_between(self.alphas, self.bethas)
             self.probability_superiority_tuple = (prob_superiority, 1 - prob_superiority)
@@ -218,9 +212,10 @@ class BatchThompson:
         np.random.seed(seed)
         data_split = np.empty((np.max(batch_split_obs), self.n_arms))
         data_split[:] = np.nan
-        p_array = self.p_array_mu + np.random.normal(0, self.p_array_mu / 3, size=self.n_arms)
+        p_array = self.p_array_mu \
+                  # + np.random.normal(0, self.p_array_mu / 3, size=self.n_arms)
         p_array = np.where(p_array < 0, 0, p_array)
-        p_array = np.where(p_array > 1, 0, p_array)
+        p_array = np.where(p_array > 1, 1, p_array)
         for i in range(self.n_arms):
             data_split[:batch_split_obs[i], i] = np.random.binomial(n=1, p=p_array[i],
                                                                     size=batch_split_obs[i])
@@ -267,9 +262,9 @@ class BatchThompsonMixed(BatchThompson):
 
     def update_criterion_stop(self, criterion_name, criterion_value) -> bool:
         if criterion_name == "probability_superiority":
-            return np.sum(self.cumulative_observations[criterion_name]) < self.n_obs_every_arm * 2
-                # (np.max(self.probability_superiority_tuple) < criterion_value) & \\
-            # (np.sum(self.cumulative_observations[criterion_name]) < self.n_obs_every_arm * 2)  # condition with True
+            return (np.max(self.probability_superiority_tuple) < criterion_value) & \
+                   (np.max(self.cumulative_observations[criterion_name]) < self.n_obs_every_arm * 2)
+            # # (np.sum(self.cumulative_observations[criterion_name]) < self.n_obs_every_arm * 2)  # condition with True
 
     def start_experiment(self, seed=1):
         """
@@ -278,13 +273,24 @@ class BatchThompsonMixed(BatchThompson):
         :param seed - random seed
         :return:
         """
-        winner_dict = defaultdict(str)
-        intermediate_dict = defaultdict(str)
+        self.alphas = np.repeat(1.0, self.n_arms)
+        self.bethas = np.repeat(1.0, self.n_arms)
+        self.probability_superiority_tuple = tuple([0.5, 0.5])
+        self.expected_losses = 0
+        self.k = (0, 0)  # number of winners for every step
+        self.cumulative_observations = {key: np.repeat(0, self.n_arms) for key in self.criterion_dict.keys()}
+
+        winner_dict = {key: None for key in self.criterion_dict.keys()}
+        intermediate_dict = {key: None for key in self.criterion_dict.keys()}
         for crit_name, crit_value in self.criterion_dict.items():
-            probability_superiority_step_list: List[ndarray] = []  # how share of traffic changes across experiment
-            observations_step_list: List[ndarray] = []  # how many observations is cumulated in every step
-            expected_loss_step_list: List[ndarray] = []
-            k_list_iter: List[ndarray] = []
+            # probability_superiority_step_list: List[tuple] = []  # how share of traffic changes across experiment
+            # observations_step_list: List[int] = []  # how many observations is cumulated in every step
+            # expected_loss_step_list: List[int] = []
+            # k_list_iter: List[ndarray] = []
+            probability_superiority_step_list = []  # how share of traffic changes across experiment
+            observations_step_list = []  # how many observations is cumulated in every step
+            expected_loss_step_list = []
+            k_list_iter = []
             k_array, l_array = np.array([0, 0]), np.array([0, 0])
             k_list_iter = [k_array]
             # if crit_n == "expected_loss":
@@ -294,8 +300,8 @@ class BatchThompsonMixed(BatchThompson):
             #                 (np.max(self.expected_losses) < crit_value[1])
             # if crit_n == "full_one_of_the_arm":
             #     criterion = np.max(self.cumulative_observations) < self.n_obs_every_arm
+            iteration: int = 1
             while self.update_criterion_stop(crit_name, crit_value):
-                iteration: int = 1
                 batch_size_share = self.batch_size_share_mu + np.random.normal(0, self.batch_size_share_mu / 3)
                 batch_size = batch_size_share * self.n_obs_every_arm * 2
                 if batch_size < 2:
@@ -305,7 +311,7 @@ class BatchThompsonMixed(BatchThompson):
                     prob_sup_array = np.array((0.5, 0.5))
                     k_array = list(map(lambda x: x + 1, k_array))
                 else:
-                    prob_sup_array = np.round(np.array(self.probability_superiority_tuple))
+                    prob_sup_array = np.round(np.array(self.probability_superiority_tuple), 2)
                     k_array = list(map(lambda x, z: x + z,
                                        k_array, np.uint8(np.round(prob_sup_array))))
                 k_list_iter.append(k_array)
@@ -334,12 +340,13 @@ class BatchThompsonMixed(BatchThompson):
                 expected_loss_step_list.append(self.expected_losses)
             probability_winner = np.max(self.probability_superiority_tuple)
             if probability_winner > crit_value:
-                winner_dict[crit_name] = np.argmax(self.probability_superiority_tuple)
+                winner_dict[crit_name] = np.argmax(self.probability_superiority_tuple).item()
             else:
-                winner_dict[crit_name] = "not_winner"
+                winner_dict[crit_name] = -1
             intermediate_dict[crit_name] = (np.round(probability_superiority_step_list, 3),
                                             np.round(expected_loss_step_list, 3),
                                             observations_step_list,
                                             k_list_iter
                                             )
+        gc.collect()
         return winner_dict, intermediate_dict
