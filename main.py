@@ -10,7 +10,10 @@ from tqdm.notebook import tqdm
 from collections import Counter
 import gc
 import os
+import time
+import timeout_decorator
 folder_experiment = "Experiment1"
+
 # {"probability_superiority": 0.99}
 
 # Classic AB tests
@@ -42,12 +45,34 @@ folder_experiment = "Experiment1"
 #                                          f"prob_super={prob_super}")
 
 # MAB tests (bandits)
+
+
+@timeout_decorator.timeout(600, timeout_exception=StopIteration)
+def save_results_combination_params(p_control_percent, mde_percent, batch_size_share_mu,
+                                    prob_super, multi_armed):
+    test = BatchThompsonMixed(p_control_percent=p_control_percent,
+                              mde_percent=mde_percent,
+                              batch_size_share_mu=batch_size_share_mu,
+                              criterion_dict={"probability_superiority": prob_super},
+                              multiarmed=multi_armed)
+    # results_all = Parallel(n_jobs=-1, verbose=5)(
+    #     delayed(test.start_experiment)(seed=i)
+    #     for i in range(1000))
+    results_all = list(p_map(test.start_experiment, np.arange(1, 1001)))
+    joblib.dump(results_all, f"Experiment results/Thompson/{folder_experiment}/p_control={p_control_percent}__"
+                             f"mde={mde_percent}__"
+                             f"prob_super={prob_super}__"
+                             f"batch_size_share_mu={round(batch_size_share_mu, 4)}__"
+                             f"multi_armed={multi_armed}")
+
+
 if __name__ == "__main__":
-    for p_control_percent in np.arange(1, 15, 5):
-        for mde_percent in np.arange(0, 11, 5):
-            for prob_super in [0.8, 0.85, 0.9, 0.95, 0.99]:
-                for batch_size_share_mu in np.linspace(0.01, 0.1, 10):
-                    for multi_armed in [True, False]:
+    for p_control_percent in tqdm(np.arange(1, 15, 5)):
+        for mde_percent in tqdm(np.arange(0, 11, 5)):
+            for prob_super in tqdm([0.8, 0.85, 0.9, 0.95, 0.99]):
+                for batch_size_share_mu in tqdm(np.linspace(0.01, 0.1, 10)):
+                    for multi_armed in tqdm([True, False]):
+                        start_time = time.time()
                         if os.path.exists(f"Experiment results/Thompson/{folder_experiment}/p_control={p_control_percent}__"
                                           f"mde={mde_percent}__"
                                           f"prob_super={prob_super}__"
@@ -55,18 +80,11 @@ if __name__ == "__main__":
                                           f"multi_armed={multi_armed}") is True:
                             continue
                         else:
-                            test = BatchThompsonMixed(p_control_percent=p_control_percent,
-                                                      mde_percent=mde_percent,
-                                                      batch_size_share_mu=batch_size_share_mu,
-                                                      criterion_dict={"probability_superiority": prob_super},
-                                                      multiarmed=multi_armed)
-                            results_all = Parallel(n_jobs=-1, verbose=5)(
-                                delayed(test.start_experiment)(seed=i)
-                                for i in range(1000))
-                            # results_all = list(p_map(test.start_experiment, np.arange(1, 1000)))
-                            joblib.dump(results_all, f"Experiment results/Thompson/{folder_experiment}/p_control={p_control_percent}__"
-                                                     f"mde={mde_percent}__"
-                                                     f"prob_super={prob_super}__"
-                                                     f"batch_size_share_mu={round(batch_size_share_mu, 4)}__"
-                                                     f"multi_armed={multi_armed}")
+                            try:
+                                save_results_combination_params(p_control_percent, mde_percent,
+                                                                batch_size_share_mu, prob_super, multi_armed)
+                            except RuntimeError:
+                                print("Waiting time exceeds 600 seconds")
+                                continue
+
 
