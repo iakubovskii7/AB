@@ -11,6 +11,7 @@ from collections import Counter
 import gc
 import os
 import time
+from pebble import concurrent
 import timeout_decorator
 folder_experiment = "Experiment1"
 
@@ -47,7 +48,7 @@ folder_experiment = "Experiment1"
 # MAB tests (bandits)
 
 
-@timeout_decorator.timeout(600, timeout_exception=StopIteration)
+@timeout_decorator.timeout(600, timeout_exception=StopIteration, use_signals=False)
 def save_results_combination_params(p_control_percent, mde_percent, batch_size_share_mu,
                                     prob_super, multi_armed):
     test = BatchThompsonMixed(p_control_percent=p_control_percent,
@@ -83,8 +84,8 @@ if __name__ == "__main__":
                             try:
                                 save_results_combination_params(p_control_percent, mde_percent,
                                                                 batch_size_share_mu, prob_super, multi_armed)
-                            except RuntimeError:
-                                print("Waiting time exceeds 600 seconds")
+                            except StopIteration:
+                                print("Waiting time exceeds 10 seconds")
                                 continue
 
 
