@@ -121,8 +121,8 @@ def g(a, b, c, d):
     return g0(a, b, c) + sum(hiter(a, b, c, d))
 
 
-def calc_prob_between(alphas, bethas):
-    return g(alphas[0], bethas[0], alphas[1], bethas[1])
+def calc_prob_between(alphas, betas):
+    return g(alphas[0], betas[0], alphas[1], betas[1])
 
 
 def expected_loss(alphas, betas, size=10000):
@@ -153,6 +153,7 @@ class BatchThompson:
         self.batch_size_share_mu = batch_size_share_mu
         self.criterion_dict = criterion_dict
         self.multiarmed = multiarmed
+        self.alphas, self.betas = np.array([1.0] * self.n_arms)
         # # Generating data for historic split
         # np.random.seed(seed)
         # self.data = np.random.binomial(n=[1, 1], p=self.p_array_mu,
@@ -164,7 +165,7 @@ class BatchThompson:
     def update_beta_params(self, batch_data: np.array, method: str):
         if method == "summation":
             self.alphas += np.nansum(batch_data, axis=0)
-            self.bethas += np.sum(batch_data == 0, axis=0)
+            self.betas += np.sum(batch_data == 0, axis=0)
         elif method == "normalization":
             S_list = np.nansum(batch_data, axis=0)  # number of successes in within batch
             F_list = np.sum(batch_data == 0, axis=0)
@@ -172,20 +173,20 @@ class BatchThompson:
             K = self.n_arms
 
             adding_alphas = (M / K) * (np.array(S_list) / (np.array(S_list) + np.array(F_list)))
-            adding_bethas = (M / K) * (1 - np.array(S_list) / (np.array(S_list) + np.array(F_list)))
+            adding_betas = (M / K) * (1 - np.array(S_list) / (np.array(S_list) + np.array(F_list)))
 
             adding_alphas = np.nan_to_num(adding_alphas)
-            adding_bethas = np.nan_to_num(adding_bethas)
+            adding_betas = np.nan_to_num(adding_betas)
 
             self.alphas += adding_alphas
-            self.bethas += adding_bethas
-        return self.alphas, self.bethas
+            self.betas += adding_betas
+        return self.alphas, self.betas
 
     def update_prob_super(self, method_calc):
         if method_calc == 'integrating':
-            prob_superiority = calc_prob_between(self.alphas, self.bethas)
-            self.probability_superiority_tuple = (prob_superiority, 1 - prob_superiority)
-        self.expected_losses = expected_loss(self.alphas, self.bethas)
+            prob_superiority = calc_prob_between(self.alphas, self.betas)
+            self.probability_superiority_tuple = np.array([prob_superiority, 1 - prob_superiority])
+        self.expected_losses = expected_loss(self.alphas, self.betas)
 
     def split_data_historic(self, batch_split_obs: List):
         """
@@ -226,8 +227,7 @@ class BatchThompson:
     def start_experiment(self, seed=1):
         probability_superiority_step_list: List[ndarray] = []  # how share of traffic changes across experiment
         observations_step_list: List[ndarray] = []  # how many observations is cumulated in every step
-        self.cumulative_observations = np.repeat(0,
-                                                 self.n_arms)  # how many observations we extract every iter for every arm
+        self.cumulative_observations = np.repeat(0, self.n_arms)  # how many observations we extract every iter for every arm
 
         while np.max(self.cumulative_observations) < self.n_obs_every_arm:
             batch_size_share = self.batch_size_share_mu + np.random.normal(0, self.batch_size_share_mu / 3)
@@ -274,11 +274,11 @@ class BatchThompsonMixed(BatchThompson):
         :return:
         """
         self.alphas = np.repeat(1.0, self.n_arms)
-        self.bethas = np.repeat(1.0, self.n_arms)
-        self.probability_superiority_tuple = tuple([0.5, 0.5])
+        self.betas = np.repeat(1.0, self.n_arms)
+        self.probability_superiority_tuple = np.array([0.5, 0.5])
         self.expected_losses = 0
         self.k = (0, 0)  # number of winners for every step
-        self.cumulative_observations = {key: np.repeat(0, self.n_arms) for key in self.criterion_dict.keys()}
+        self.cumulative_observations = np.repeat(0, self.n_arms)
 
         winner_dict = {key: None for key in self.criterion_dict.keys()}
         intermediate_dict = {key: None for key in self.criterion_dict.keys()}
@@ -311,7 +311,8 @@ class BatchThompsonMixed(BatchThompson):
                     prob_sup_array = np.array((0.5, 0.5))
                     k_array = list(map(lambda x: x + 1, k_array))
                 else:
-                    prob_sup_array = np.round(np.array(self.probability_superiority_tuple), 2)
+                    # prob_sup_array = np.round(np.array(self.probability_superiority_tuple), 2)  # experiment1
+                    prob_sup_array = np.round(np.array(self.probability_superiority_tuple), 0)  # experiment2
                     k_array = list(map(lambda x, z: x + z,
                                        k_array, np.uint8(np.round(prob_sup_array))))
                 k_list_iter.append(k_array)

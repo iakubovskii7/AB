@@ -92,3 +92,13 @@ test_result = TestResultProcessing(folder="Thompson/Experiment1/",
                                    test_type="thompson")
 
 reslts = test_result.run()
+reslts_fp = reslts.query("mde == '0'")
+
+reslts_fp.query("prob_super == '0.8'").reset_index()[['batch_size_share_mu', 'share_not_winner']]
+
+reslts_fn = reslts.query("mde != '0'")
+
+reslts_fn.query("prob_super == '0.95'").reset_index()[
+    ['batch_size_share_mu', 'share_test_winner']
+].astype(float).corr()
+

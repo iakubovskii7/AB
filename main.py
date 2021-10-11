@@ -13,7 +13,7 @@ import os
 import time
 from pebble import concurrent
 import timeout_decorator
-folder_experiment = "Experiment1"
+folder_experiment = "Experiment2"
 
 # {"probability_superiority": 0.99}
 
@@ -70,7 +70,7 @@ def save_results_combination_params(p_control_percent, mde_percent, batch_size_s
 if __name__ == "__main__":
     for p_control_percent in tqdm(np.arange(1, 15, 5)):
         for mde_percent in tqdm(np.arange(0, 11, 5)):
-            for prob_super in tqdm([0.8, 0.85, 0.9, 0.95, 0.99]):
+            for prob_super in tqdm([0.9, 0.95]):
                 for batch_size_share_mu in tqdm(np.linspace(0.01, 0.1, 10)):
                     for multi_armed in tqdm([True, False]):
                         start_time = time.time()
