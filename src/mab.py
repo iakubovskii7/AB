@@ -144,7 +144,7 @@ def expected_loss(alphas, betas, size=10000):
 
 class BatchThompson:
     def __init__(self, p_control_percent: float, mde_percent: float, batch_size_share_mu: float, criterion_dict: Dict,
-                 multiarmed=False):
+                 method_update_params: str, multiarmed: bool = False):
         p1, mde_test = p_control_percent / 100, -(p_control_percent * mde_percent) / 10000
         p2 = p1 - mde_test
         self.p_array_mu = np.array([p1, p2])
@@ -154,6 +154,10 @@ class BatchThompson:
         self.criterion_dict = criterion_dict
         self.multiarmed = multiarmed
         self.alphas, self.betas = np.array([1.0] * self.n_arms)
+        self.method_update_params = method_update_params
+        self.probability_superiority_array = np.array([0.5, 0.5])
+        self.expected_losses = 0
+        self.cumulative_observations = np.repeat(0, self.n_arms)
         # # Generating data for historic split
         # np.random.seed(seed)
         # self.data = np.random.binomial(n=[1, 1], p=self.p_array_mu,
@@ -162,11 +166,11 @@ class BatchThompson:
         # print(f"Нужно наблюдений в каждую руку для выявления эффекта в классическом АБ-тесте: "
         #       f"{self.n_obs_every_arm}")
 
-    def update_beta_params(self, batch_data: np.array, method: str):
-        if method == "summation":
+    def update_beta_params(self, batch_data: np.array):
+        if self.method_update_params == "summation":
             self.alphas += np.nansum(batch_data, axis=0)
             self.betas += np.sum(batch_data == 0, axis=0)
-        elif method == "normalization":
+        elif self.method_update_params == "normalization":
             S_list = np.nansum(batch_data, axis=0)  # number of successes in within batch
             F_list = np.sum(batch_data == 0, axis=0)
             M = batch_data.shape[0]
@@ -185,7 +189,7 @@ class BatchThompson:
     def update_prob_super(self, method_calc):
         if method_calc == 'integrating':
             prob_superiority = calc_prob_between(self.alphas, self.betas)
-            self.probability_superiority_tuple = np.array([prob_superiority, 1 - prob_superiority])
+            self.probability_superiority_array = np.array([prob_superiority, 1 - prob_superiority])
         self.expected_losses = expected_loss(self.alphas, self.betas)
 
     def split_data_historic(self, batch_split_obs: List):
@@ -234,7 +238,7 @@ class BatchThompson:
             batch_size = batch_size_share * self.n_obs_every_arm * 2
             if batch_size < 2:
                 batch_size = 2
-            batch_split_obs = (batch_size * np.array(self.probability_superiority_tuple)).astype(
+            batch_split_obs = (batch_size * np.array(self.probability_superiority_array)).astype(
                 np.uint16)  # get number of observations every arm
             self.cumulative_observations += batch_split_obs
             # batch_data = batchT.split_data_historic(self.cumulative_observations=self.cumulative_observations,
@@ -244,13 +248,13 @@ class BatchThompson:
             # Updating all
             self.update_beta_params(batch_data, method="normalization")  # update beta distributions parameters
             self.update_prob_super(method_calc="integrating")  # update probability superiority
-            self.k += np.round(self.probability_superiority_tuple, 0)
+            self.k += np.round(self.probability_superiority_array, 0)
 
             # Append for resulting
-            probability_superiority_step_list.append(self.probability_superiority_tuple)
+            probability_superiority_step_list.append(self.probability_superiority_array)
             observations_step_list.append(batch_split_obs)
 
-            # stopping_criterion = (np.max(self.probability_superiority_tuple) >= 0.99) | \
+            # stopping_criterion = (np.max(self.probability_superiority_array) >= 0.99) | \
             #                      (np.max(self.cumulative_observations) >  self.n_obs_every_arm)
         return np.round(probability_superiority_step_list, 3), observations_step_list
 
@@ -262,7 +266,7 @@ class BatchThompsonMixed(BatchThompson):
 
     def update_criterion_stop(self, criterion_name, criterion_value) -> bool:
         if criterion_name == "probability_superiority":
-            return (np.max(self.probability_superiority_tuple) < criterion_value) & \
+            return (np.max(self.probability_superiority_array) < criterion_value) & \
                    (np.max(self.cumulative_observations[criterion_name]) < self.n_obs_every_arm * 2)
             # # (np.sum(self.cumulative_observations[criterion_name]) < self.n_obs_every_arm * 2)  # condition with True
 
@@ -275,79 +279,141 @@ class BatchThompsonMixed(BatchThompson):
         """
         self.alphas = np.repeat(1.0, self.n_arms)
         self.betas = np.repeat(1.0, self.n_arms)
-        self.probability_superiority_tuple = np.array([0.5, 0.5])
+        self.probability_superiority_array = np.array([0.5, 0.5])
         self.expected_losses = 0
         self.k = (0, 0)  # number of winners for every step
         self.cumulative_observations = np.repeat(0, self.n_arms)
-
-        winner_dict = {key: None for key in self.criterion_dict.keys()}
-        intermediate_dict = {key: None for key in self.criterion_dict.keys()}
-        for crit_name, crit_value in self.criterion_dict.items():
-            # probability_superiority_step_list: List[tuple] = []  # how share of traffic changes across experiment
-            # observations_step_list: List[int] = []  # how many observations is cumulated in every step
-            # expected_loss_step_list: List[int] = []
-            # k_list_iter: List[ndarray] = []
-            probability_superiority_step_list = []  # how share of traffic changes across experiment
-            observations_step_list = []  # how many observations is cumulated in every step
-            expected_loss_step_list = []
-            k_list_iter = []
-            k_array, l_array = np.array([0, 0]), np.array([0, 0])
-            k_list_iter = [k_array]
-            # if crit_n == "expected_loss":
-            #     criterion = np.max(self.expected_losses) < crit_value
-            # if crit_n == "prob_super_exp_loss":
-            #     criterion = (np.max(self.probability_superiority_tuple) < crit_value[0]) & \
-            #                 (np.max(self.expected_losses) < crit_value[1])
-            # if crit_n == "full_one_of_the_arm":
-            #     criterion = np.max(self.cumulative_observations) < self.n_obs_every_arm
-            iteration: int = 1
-            while self.update_criterion_stop(crit_name, crit_value):
-                batch_size_share = self.batch_size_share_mu + np.random.normal(0, self.batch_size_share_mu / 3)
-                batch_size = batch_size_share * self.n_obs_every_arm * 2
-                if batch_size < 2:
-                    batch_size = 2
-                # Add condition from paper1 algo
-                if sum(2 ** l_array >= k_array) > 0:  # condition to split 50 / 50
-                    prob_sup_array = np.array((0.5, 0.5))
-                    k_array = list(map(lambda x: x + 1, k_array))
-                else:
-                    # prob_sup_array = np.round(np.array(self.probability_superiority_tuple), 2)  # experiment1
-                    prob_sup_array = np.round(np.array(self.probability_superiority_tuple), 0)  # experiment2
-                    k_array = list(map(lambda x, z: x + z,
-                                       k_array, np.uint8(np.round(prob_sup_array))))
-                k_list_iter.append(k_array)
-                l_array = np.array([k_array[0] - k_array[1], k_array[1] - k_array[0]])
-                l_array = np.where(l_array < 0, 0, l_array)
-                iteration += 1
-
-                # Choose split
-                if self.multiarmed is True:
-                    batch_split_obs = (batch_size * prob_sup_array).astype(
-                        np.uint16)  # get number of observations per every arm
-                else:
-                    batch_split_obs = (batch_size * np.array([0.5] * self.n_arms)).astype(
-                        np.uint16)  # get number of observations per every arm
-                self.cumulative_observations[crit_name] += batch_split_obs
-                # print(np.max(self.cumulative_observations))
-                batch_data = self.split_data_random(batch_split_obs, seed=seed)  # based on generate batch online
-
-                # Updating all
-                self.update_beta_params(batch_data, method="normalization")  # update beta distributions parameters
-                self.update_prob_super(method_calc="integrating")  # update probability superiority
-
-                # Append for resulting
-                probability_superiority_step_list.append(self.probability_superiority_tuple)
-                observations_step_list.append(batch_split_obs)
-                expected_loss_step_list.append(self.expected_losses)
-            probability_winner = np.max(self.probability_superiority_tuple)
-            if probability_winner > crit_value:
-                winner_dict[crit_name] = np.argmax(self.probability_superiority_tuple).item()
+        crit_name, crit_value = list(self.criterion_dict.keys())[0], \
+                                list(self.criterion_dict.keys())[1]
+        # probability_superiority_step_list: List[tuple] = []  # how share of traffic changes across experiment
+        # observations_step_list: List[int] = []  # how many observations is cumulated in every step
+        # expected_loss_step_list: List[int] = []
+        # k_list_iter: List[ndarray] = []
+        probability_superiority_step_list = []  # how share of traffic changes across experiment
+        observations_step_list = []  # how many observations is cumulated in every step
+        expected_loss_step_list = []
+        k_list_iter = []
+        k_array, l_array = np.array([0, 0]), np.array([0, 0])
+        k_list_iter = [k_array]
+        # if crit_n == "expected_loss":
+        #     criterion = np.max(self.expected_losses) < crit_value
+        # if crit_n == "prob_super_exp_loss":
+        #     criterion = (np.max(self.probability_superiority_array) < crit_value[0]) & \
+        #                 (np.max(self.expected_losses) < crit_value[1])
+        # if crit_n == "full_one_of_the_arm":
+        #     criterion = np.max(self.cumulative_observations) < self.n_obs_every_arm
+        iteration: int = 1
+        while self.update_criterion_stop(crit_name, crit_value):
+            batch_size_share = self.batch_size_share_mu + np.random.normal(0, self.batch_size_share_mu / 3)
+            batch_size = batch_size_share * self.n_obs_every_arm * 2
+            if batch_size < 2:
+                batch_size = 2
+            # Add condition from paper1 algo
+            if sum(2 ** l_array >= k_array) > 0:  # condition to split 50 / 50
+                prob_sup_array = np.array((0.5, 0.5))
+                k_array = list(map(lambda x: x + 1, k_array))
             else:
-                winner_dict[crit_name] = -1
-            intermediate_dict[crit_name] = (np.round(probability_superiority_step_list, 3),
-                                            np.round(expected_loss_step_list, 3),
-                                            observations_step_list,
-                                            k_list_iter
-                                            )
+                # prob_sup_array = np.round(np.array(self.probability_superiority_array), 2)  # experiment1
+                prob_sup_array = np.round(np.array(self.probability_superiority_array), 0)  # experiment2
+                k_array = list(map(lambda x, z: x + z,
+                                   k_array, np.uint8(np.round(prob_sup_array))))
+            k_list_iter.append(k_array)
+            l_array = np.array([k_array[0] - k_array[1], k_array[1] - k_array[0]])
+            l_array = np.where(l_array < 0, 0, l_array)
+            iteration += 1
+
+            # Choose split
+            if self.multiarmed is True:
+                batch_split_obs = (batch_size * prob_sup_array).astype(
+                    np.uint16)  # get number of observations per every arm
+            else:
+                batch_split_obs = (batch_size * np.array([0.5] * self.n_arms)).astype(
+                    np.uint16)  # get number of observations per every arm
+            self.cumulative_observations[crit_name] += batch_split_obs
+            # print(np.max(self.cumulative_observations))
+            batch_data = self.split_data_random(batch_split_obs, seed=seed)  # based on generate batch online
+
+            # Updating all
+            self.update_beta_params(batch_data, method="normalization")  # update beta distributions parameters
+            self.update_prob_super(method_calc="integrating")  # update probability superiority
+
+            # Append for resulting
+            probability_superiority_step_list.append(self.probability_superiority_array)
+            observations_step_list.append(batch_split_obs)
+            expected_loss_step_list.append(self.expected_losses)
+        probability_winner = np.max(self.probability_superiority_array)
+        if probability_winner > crit_value:
+            winner = np.argmax(self.probability_superiority_array).item()
+        else:
+            winner = -1
+        intermediate_results = (np.round(probability_superiority_step_list, 3),
+                                np.round(expected_loss_step_list, 3),
+                                observations_step_list,
+                                k_list_iter,
+                                np.sum(self.alphas)  # sum of conversions
+                                )
         gc.collect()
-        return winner_dict, intermediate_dict
+        return winner, intermediate_results
+
+
+class BatchThompsonOld(BatchThompson):
+    """
+    Add k and l - number of winners on previous steps
+    """
+
+    def update_criterion_stop(self, criterion_name, criterion_value) -> bool:
+        if criterion_name == "probability_superiority":
+            # return (np.max(self.probability_superiority_array) < criterion_value) & \
+            return np.sum(self.cumulative_observations) < self.n_obs_every_arm * 2
+            # # (np.sum(self.cumulative_observations[criterion_name]) < self.n_obs_every_arm * 2)  # condition with True
+
+    def start_experiment(self, seed=1):
+        """
+        :param criterion_dict:
+        :param multiarmed == False -> Bayesian batched
+        :param seed - random seed
+        :return:
+        """
+        self.alphas = np.repeat(1.0, self.n_arms)
+        self.betas = np.repeat(1.0, self.n_arms)
+        self.probability_superiority_array = np.array([0.5, 0.5])
+        self.expected_losses = 0
+        self.cumulative_observations = np.repeat(0, self.n_arms)
+        crit_name, crit_value = list(self.criterion_dict.keys())[0], list(self.criterion_dict.values())[0]
+        probability_superiority_step_list: List[ndarray] = []  # how share of traffic changes across experiment
+        observations_step_list: List[int] = []  # how many observations is cumulated in every step
+        expected_loss_step_list: List[int] = []
+        while self.update_criterion_stop(crit_name, crit_value):
+            batch_size_share = self.batch_size_share_mu + np.random.normal(0, self.batch_size_share_mu / 3)
+            batch_size = batch_size_share * self.n_obs_every_arm * 2
+            if batch_size < 2:
+                batch_size = 2
+            prob_sup_array = np.round(np.array(self.probability_superiority_array), 2)
+            # Choose split
+            if self.multiarmed is True:
+                batch_split_obs = (batch_size * prob_sup_array).astype(np.uint32)  # get number of observations per every arm
+            else:
+                batch_split_obs = (batch_size * np.array([0.5] * self.n_arms)).astype(np.uint32)  # get number of observations per every arm
+            self.cumulative_observations += batch_split_obs
+            batch_data = self.split_data_random(batch_split_obs, seed=seed)  # based on generate batch online
+
+            # Updating all
+            self.update_beta_params(batch_data)  # update beta distributions parameters
+            self.update_prob_super(method_calc="integrating")  # update probability superiority
+
+            # Append for resulting
+            probability_superiority_step_list.append(self.probability_superiority_array)
+            observations_step_list.append(batch_split_obs)
+            expected_loss_step_list.append(self.expected_losses)
+        probability_winner = np.max(self.probability_superiority_array)
+        if probability_winner > crit_value:
+            winner = np.argmax(self.probability_superiority_array).item()
+        else:
+            winner = -1
+        intermediate_results = (np.round(probability_superiority_step_list, 3),
+                                np.round(expected_loss_step_list, 3),
+                                observations_step_list,
+                                np.sum(self.alphas)  # sum of conversions
+                                )
+        gc.collect()
+        return winner, intermediate_results
