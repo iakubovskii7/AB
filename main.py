@@ -37,7 +37,7 @@ def save_results_bayesian(p_control_percent, mde_percent, prob_super,
                                   criterion_dict={"probability_superiority": prob_super},
                                   share_observation_optimal_arms=share_observation_optimal_arms)
     results_all = list(p_map(test.start_experiment, [i for i in range(1, 1001)]))
-    joblib.dump(results_all, f"Experiment results/Bayesian/{folder_experiment}/"
+    joblib.dump(results_all, f"Experiment results/Conversion/Bayesian/{folder_experiment}/"
                              f"p_control={p_control_percent}__"
                              f"mde={mde_percent}__"
                              f"prob_super={prob_super}__"
@@ -115,7 +115,7 @@ if __name__ == "__main__":
                     for method_update_params in ['summation']:
                         for multi_armed in [True, False]:
                             start_time = time.time()
-                            if os.path.exists(f"Experiment results/Thompson/{folder_experiment}/p_control={p_control_percent}__"
+                            if os.path.exists(f"Experiment results/Conversion/Thompson/{folder_experiment}/p_control={p_control_percent}__"
                                               f"mde={mde_percent}__"
                                               f"prob_super={prob_super}__"
                                               f"batch_size_share_mu={round(batch_size_share_mu, 4)}__"

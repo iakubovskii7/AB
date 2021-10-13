@@ -363,9 +363,8 @@ class BatchThompsonOld(BatchThompson):
 
     def update_criterion_stop(self, criterion_name, criterion_value) -> bool:
         if criterion_name == "probability_superiority":
-            # return (np.max(self.probability_superiority_array) < criterion_value) & \
-            return np.sum(self.cumulative_observations) < self.n_obs_every_arm * 2
-            # # (np.sum(self.cumulative_observations[criterion_name]) < self.n_obs_every_arm * 2)  # condition with True
+            return np.max(self.probability_superiority_array) < criterion_value
+                # np.sum(self.cumulative_observations) < self.n_obs_every_arm * 2  # condition with True
 
     def start_experiment(self, seed=1):
         """
