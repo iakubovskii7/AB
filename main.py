@@ -10,7 +10,7 @@ from p_tqdm import p_map
 import os
 import timeout_decorator
 import time
-folder_experiment = "Experiment3"
+folder_experiment = "Experiment4"
 
 # {"probability_superiority": 0.99}
 
@@ -81,9 +81,8 @@ def save_results_mab(p_control_percent, mde_percent, batch_size_share_mu,
                             criterion_dict={"probability_superiority": prob_super},
                             method_update_params=method_update_params,
                             multiarmed=multi_armed)
-    # results_all = Parallel(n_jobs=-1, verbose=5)(
-    #     delayed(test.start_experiment)(seed=i)
-    #     for i in range(1000))
+    # results_all = Parallel(n_jobs=-1, verbose=1)(
+    #     delayed(test.start_experiment)(seed=i) for i in range(1, 1000))
     results_all = list(p_map(test.start_experiment, np.arange(1, 1001)))
     joblib.dump(results_all, f"Experiment results/Thompson/{folder_experiment}/p_control={p_control_percent}__"
                              f"mde={mde_percent}__"
@@ -109,12 +108,11 @@ def save_results_mab(p_control_percent, mde_percent, batch_size_share_mu,
 
 if __name__ == "__main__":
     for p_control_percent in np.arange(1, 15, 5):
-        for mde_percent in np.arange(0, 11, 5):
-            for prob_super in [0.9, 0.95]:
+        for mde_percent in np.arange(10, 50, 10):
+            for prob_super in [0.95]:
                 for batch_size_share_mu in np.linspace(0.01, 0.1, 10):
                     for method_update_params in ['summation']:
                         for multi_armed in [True, False]:
-                            start_time = time.time()
                             if os.path.exists(f"Experiment results/Conversion/Thompson/{folder_experiment}/p_control={p_control_percent}__"
                                               f"mde={mde_percent}__"
                                               f"prob_super={prob_super}__"
@@ -130,5 +128,17 @@ if __name__ == "__main__":
                                 except StopIteration:
                                     print("Waiting time exceeds 600 seconds")
                                     continue
-
+# p_control_percent = 1
+# mde_percent = 10
+# batch_size_share_mu = 0.1
+# method_update_params = "summation"
+# multi_armed = True
+# prob_super = 0.95
+# test = BatchThompsonOld(p_control_percent=p_control_percent,
+#                         mde_percent=mde_percent,
+#                         batch_size_share_mu=batch_size_share_mu,
+#                         criterion_dict={"probability_superiority": prob_super},
+#                         method_update_params=method_update_params,
+#                         multiarmed=multi_armed)
+# print(test.start_experiment(seed=5))
 

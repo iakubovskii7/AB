@@ -13,7 +13,7 @@ import plotly.express as px
 
 class TestResult1Processing:
     def __init__(self, folder: str, test_type: str):
-        self.path_to_all_files = f"Experiment results/{folder}"
+        self.path_to_all_files = f"Experiment results/Conversion/{folder}"
         self.test_type = test_type
 
     def create_bayes_results(self, filepath) -> pd.DataFrame:
@@ -97,7 +97,7 @@ class TestResult1Processing:
 
 class TestResult2Processing:
     def __init__(self, folder: str, test_type: str):
-        self.path_to_all_files = f"Experiment results/{folder}"
+        self.path_to_all_files = f"Experiment results/Conversion/{folder}"
         self.test_type = test_type
 
     def create_bayes_results(self, filepath) -> pd.DataFrame:
@@ -116,12 +116,18 @@ class TestResult2Processing:
         result_df['probability_superiority_median'] = ''
         result_df['expected_losses'] = ''
         result_df['size'] = ''
+        result_df['conversion_sum_mean'] = ''
+        result_df['conversion_sum_median'] = ''
         winners = [df[i][0] for i in range(1000)]
         result_df.at[result_df.index[0], "count_winners"] = Counter(winners)
         result_df.at[result_df.index[0], 'probability_superiority_mean'] = np.mean(
             [df[i][1][0] for i in range(1000)], axis=0).round(3)
         result_df.at[result_df.index[0], 'probability_superiority_median'] = np.median(
             [df[i][1][0] for i in range(1000)], axis=0).round(3)
+        result_df.at[result_df.index[0], 'conversion_sum_mean'] = np.mean(
+            [df[i][1][3] for i in range(1000)], axis=0).round(1)
+        result_df.at[result_df.index[0], 'conversion_sum_median'] = np.median(
+            [df[i][1][3] for i in range(1000)], axis=0).round(1)
     #     result_df['expected_losses'] = df[i][1]['probability_superiority'][1].round(5)
         result_df['size'] = df[0][1][2]
 
@@ -153,8 +159,20 @@ class TestResult2Processing:
                        for i in range(1000))
         result_df['share_observations_mean'] = ''
         result_df['share_observations_median'] = ''
+        result_df['conversion_sum_mean'] = ''
+        result_df['conversion_sum_median'] = ''
+        result_df['number_of_iteration_mean'] = ''
+        result_df['number_of_iteration_median'] = ''
         result_df.at[result_df.index[0], 'share_observations_mean'] = np.mean(shares, axis=0).round(3)
         result_df.at[result_df.index[0], 'share_observations_median'] = np.median(shares, axis=0).round(3)
+        result_df.at[result_df.index[0], 'conversion_sum_mean'] = np.mean(
+            [df[i][1][3] for i in range(1000)], axis=0).round(1)
+        result_df.at[result_df.index[0], 'conversion_sum_median'] = np.median(
+            [df[i][1][3] for i in range(1000)], axis=0).round(1)
+        result_df.at[result_df.index[0], 'number_of_iteration_mean'] = np.mean(
+            [df[i][1][0].shape[0] for i in range(1000)], axis=0).round(3)
+        result_df.at[result_df.index[0], 'number_of_iteration_median'] = np.median(
+            [df[i][1][0].shape[0] for i in range(1000)], axis=0).round(3)
 
         # Add share correct / incorrect winners
         result_df['share_test_winner'] = result_df['count_winners'] \

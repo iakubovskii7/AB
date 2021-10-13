@@ -158,6 +158,7 @@ class BatchThompson:
         self.probability_superiority_array = np.array([0.5, 0.5])
         self.expected_losses = 0
         self.cumulative_observations = np.repeat(0, self.n_arms)
+        self.conversion_sum = np.array([0.])
         # # Generating data for historic split
         # np.random.seed(seed)
         # self.data = np.random.binomial(n=[1, 1], p=self.p_array_mu,
@@ -341,6 +342,7 @@ class BatchThompsonMixed(BatchThompson):
             probability_superiority_step_list.append(self.probability_superiority_array)
             observations_step_list.append(batch_split_obs)
             expected_loss_step_list.append(self.expected_losses)
+            self.conversion_sum += np.sum(batch_data)
         probability_winner = np.max(self.probability_superiority_array)
         if probability_winner > crit_value:
             winner = np.argmax(self.probability_superiority_array).item()
@@ -350,7 +352,7 @@ class BatchThompsonMixed(BatchThompson):
                                 np.round(expected_loss_step_list, 3),
                                 observations_step_list,
                                 k_list_iter,
-                                np.sum(self.alphas)  # sum of conversions
+                                self.conversion_sum  # sum of conversions
                                 )
         gc.collect()
         return winner, intermediate_results
@@ -404,6 +406,7 @@ class BatchThompsonOld(BatchThompson):
             probability_superiority_step_list.append(self.probability_superiority_array)
             observations_step_list.append(batch_split_obs)
             expected_loss_step_list.append(self.expected_losses)
+            self.conversion_sum += np.nansum(batch_data)
         probability_winner = np.max(self.probability_superiority_array)
         if probability_winner > crit_value:
             winner = np.argmax(self.probability_superiority_array).item()
@@ -412,7 +415,7 @@ class BatchThompsonOld(BatchThompson):
         intermediate_results = (np.round(probability_superiority_step_list, 3),
                                 np.round(expected_loss_step_list, 3),
                                 observations_step_list,
-                                np.sum(self.alphas)  # sum of conversions
+                                self.conversion_sum  # sum of conversions
                                 )
         gc.collect()
         return winner, intermediate_results
