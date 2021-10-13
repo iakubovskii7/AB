@@ -365,8 +365,9 @@ class BatchThompsonOld(BatchThompson):
 
     def update_criterion_stop(self, criterion_name, criterion_value) -> bool:
         if criterion_name == "probability_superiority":
-            return np.max(self.probability_superiority_array) < criterion_value
-                # np.sum(self.cumulative_observations) < self.n_obs_every_arm * 2  # condition with True
+            print(np.max(self.probability_superiority_array))
+            return (np.max(self.probability_superiority_array) < criterion_value)
+                   # (np.sum(self.cumulative_observations) < self.n_obs_every_arm * 2)  # condition with True
 
     def start_experiment(self, seed=1):
         """
@@ -380,6 +381,7 @@ class BatchThompsonOld(BatchThompson):
         self.probability_superiority_array = np.array([0.5, 0.5])
         self.expected_losses = 0
         self.cumulative_observations = np.repeat(0, self.n_arms)
+        self.conversion_sum = np.array([0.])
         crit_name, crit_value = list(self.criterion_dict.keys())[0], list(self.criterion_dict.values())[0]
         probability_superiority_step_list: List[ndarray] = []  # how share of traffic changes across experiment
         observations_step_list: List[int] = []  # how many observations is cumulated in every step

@@ -72,7 +72,7 @@ def save_results_bayesian(p_control_percent, mde_percent, prob_super,
 # MAB tests (bandits)
 
 
-@timeout_decorator.timeout(1200, timeout_exception=StopIteration, use_signals=False)
+# @timeout_decorator.timeout(1200, timeout_exception=StopIteration, use_signals=False)
 def save_results_mab(p_control_percent, mde_percent, batch_size_share_mu,
                      prob_super, method_update_params, multi_armed):
     test = BatchThompsonOld(p_control_percent=p_control_percent,
@@ -81,21 +81,20 @@ def save_results_mab(p_control_percent, mde_percent, batch_size_share_mu,
                             criterion_dict={"probability_superiority": prob_super},
                             method_update_params=method_update_params,
                             multiarmed=multi_armed)
-    # results_all = Parallel(n_jobs=-1, verbose=1)(
-    #     delayed(test.start_experiment)(seed=i) for i in range(1, 1000))
-    results_all = list(p_map(test.start_experiment, np.arange(1, 1001)))
-    joblib.dump(results_all, f"Experiment results/Thompson/{folder_experiment}/p_control={p_control_percent}__"
-                             f"mde={mde_percent}__"
-                             f"prob_super={prob_super}__"
-                             f"batch_size_share_mu={round(batch_size_share_mu, 4)}__"
-                             f"method_update_params={method_update_params}__"
-                             f"multi_armed={multi_armed}")
-    print(f"Experiment results/Thompson/{folder_experiment}/p_control={p_control_percent}__"
-          f"mde={mde_percent}__"
-          f"prob_super={prob_super}__"
-          f"batch_size_share_mu={round(batch_size_share_mu, 4)}__"
-          f"method_update_params={method_update_params}__"
-          f"multi_armed={multi_armed}")
+    # results_all = Parallel(n_jobs=-1, verbose=1)(delayed(test.start_experiment)(seed=i) for i in range(1, 1000))
+    results_all = list(p_map(test.start_experiment, range(1, 1001)))
+    # joblib.dump(results_all, f"Experiment results/Thompson/{folder_experiment}/p_control={p_control_percent}__"
+    #                          f"mde={mde_percent}__"
+    #                          f"prob_super={prob_super}__"
+    #                          f"batch_size_share_mu={round(batch_size_share_mu, 4)}__"
+    #                          f"method_update_params={method_update_params}__"
+    #                          f"multi_armed={multi_armed}")
+    # print(f"Experiment results/Thompson/{folder_experiment}/p_control={p_control_percent}__"
+    #       f"mde={mde_percent}__"
+    #       f"prob_super={prob_super}__"
+    #       f"batch_size_share_mu={round(batch_size_share_mu, 4)}__"
+    #       f"method_update_params={method_update_params}__"
+    #       f"multi_armed={multi_armed}")
 
 # test = BatchThompsonOld(p_control_percent=1,
 #                         mde_percent=10,
@@ -106,39 +105,42 @@ def save_results_mab(p_control_percent, mde_percent, batch_size_share_mu,
 # test.start_experiment()
 
 
-if __name__ == "__main__":
-    for p_control_percent in np.arange(1, 15, 5):
-        for mde_percent in np.arange(10, 50, 10):
-            for prob_super in [0.95]:
-                for batch_size_share_mu in np.linspace(0.01, 0.1, 10):
-                    for method_update_params in ['summation']:
-                        for multi_armed in [True, False]:
-                            if os.path.exists(f"Experiment results/Conversion/Thompson/{folder_experiment}/p_control={p_control_percent}__"
-                                              f"mde={mde_percent}__"
-                                              f"prob_super={prob_super}__"
-                                              f"batch_size_share_mu={round(batch_size_share_mu, 4)}__"
-                                              f"method_update_params={method_update_params}__"
-                                              f"multi_armed={multi_armed}") is True:
-                                continue
-                            else:
-                                try:
-                                    save_results_mab(p_control_percent, mde_percent,
-                                                     batch_size_share_mu, prob_super,
-                                                     method_update_params, multi_armed)
-                                except StopIteration:
-                                    print("Waiting time exceeds 600 seconds")
-                                    continue
-# p_control_percent = 1
-# mde_percent = 10
-# batch_size_share_mu = 0.1
-# method_update_params = "summation"
-# multi_armed = True
-# prob_super = 0.95
-# test = BatchThompsonOld(p_control_percent=p_control_percent,
-#                         mde_percent=mde_percent,
-#                         batch_size_share_mu=batch_size_share_mu,
-#                         criterion_dict={"probability_superiority": prob_super},
-#                         method_update_params=method_update_params,
-#                         multiarmed=multi_armed)
-# print(test.start_experiment(seed=5))
+# if __name__ == "__main__":
+#     for p_control_percent in np.arange(1, 15, 5):
+#         for mde_percent in np.arange(10, 50, 10):
+#             for prob_super in [0.95]:
+#                 for batch_size_share_mu in np.linspace(0.01, 0.1, 10):
+#                     for method_update_params in ['summation']:
+#                         for multi_armed in [True, False]:
+#                             if os.path.exists(f"Experiment results/Conversion/Thompson/{folder_experiment}/p_control={p_control_percent}__"
+#                                               f"mde={mde_percent}__"
+#                                               f"prob_super={prob_super}__"
+#                                               f"batch_size_share_mu={round(batch_size_share_mu, 4)}__"
+#                                               f"method_update_params={method_update_params}__"
+#                                               f"multi_armed={multi_armed}") is True:
+#                                 continue
+#                             else:
+#                                 try:
+#                                     save_results_mab(p_control_percent, mde_percent,
+#                                                      batch_size_share_mu, prob_super,
+#                                                      method_update_params, multi_armed)
+#                                 except StopIteration:
+#                                     print("Waiting time exceeds 600 seconds")
+#                                     continue
+p_control_percent = 1
+mde_percent = 10
+batch_size_share_mu = 0.1
+method_update_params = "summation"
+multi_armed = True
+prob_super = 0.95
+test = BatchThompsonOld(p_control_percent=p_control_percent,
+                        mde_percent=mde_percent,
+                        batch_size_share_mu=batch_size_share_mu,
+                        criterion_dict={"probability_superiority": prob_super},
+                        method_update_params=method_update_params,
+                        multiarmed=multi_armed)
+# test.start_experiment(seed=6)
+for i in range(1, 1001):
+    test.start_experiment(seed=i)
+    print(i)
 
