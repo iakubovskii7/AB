@@ -1,18 +1,18 @@
 import re
 from collections import Counter, defaultdict
-from math import lgamma
+
 from random import choices
 from typing import List, Dict, Tuple
-import matplotlib.pyplot as plt
 from scipy.stats import beta
 import gc
 import bootstrapped.bootstrap as bs
 import bootstrapped.stats_functions as bs_stats
 import numpy as np
 
+import pandas as pd
+
 np.seterr(divide='ignore', invalid='ignore')
-from numpy import ndarray
-from numba import jit
+
 
 from src.bootstrap import bootstrap_jit_parallel
 from src.ab import get_size_zratio
@@ -95,51 +95,7 @@ def ucb_bootstrapped(revenue_dict: Dict[str, np.array],
     return [*revenue_dict.keys()][n_action]
 
 
-# Функции для вычисления вероятности превосходства по точной формуле
 
-
-@jit
-def h(a, b, c, d):
-    num = lgamma(a + c) + lgamma(b + d) + lgamma(a + b) + lgamma(c + d)
-    den = lgamma(a) + lgamma(b) + lgamma(c) + lgamma(d) + lgamma(a + b + c + d)
-    return np.exp(num - den)
-
-
-@jit
-def g0(a, b, c):
-    return np.exp(lgamma(a + b) + lgamma(a + c) - (lgamma(a + b + c) + lgamma(a)))
-
-
-@jit
-def hiter(a, b, c, d):
-    while d > 1:
-        d -= 1
-        yield h(a, b, c, d) / d
-
-
-def g(a, b, c, d):
-    return g0(a, b, c) + sum(hiter(a, b, c, d))
-
-
-def calc_prob_between(alphas, betas):
-    return g(alphas[0], betas[0], alphas[1], betas[1])
-
-
-def expected_loss(alphas, betas, size=10000):
-    """
-    Calculate expected losses for beta distribution
-    :param size: number of random values
-    :param alphas: alpha params
-    :param betas: beta params
-    :return:
-    """
-    control_thetas = beta.rvs(alphas[0], betas[0], size=size)
-    test_thetas = beta.rvs(alphas[1], betas[1], size=size)
-    difference = test_thetas - control_thetas
-    difference = np.where(difference < 0, 0, difference)
-    # prob_super0 = np.count_nonzero(difference) / size  # probability superiority for
-    expected_losses = (np.sum(difference) / size) * 100
-    return expected_losses
 
 
 class BatchThompson:
