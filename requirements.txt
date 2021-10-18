@@ -17,4 +17,5 @@ plotly==5.3.1
 timeout-decorator==0.5.0
 pebble==4.6.3
 swifter==1.0.9
+statsmodels==0.13.0
 

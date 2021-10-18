@@ -14,6 +14,7 @@ from src.bootstrap import bootstrap_jit_parallel
 from statsmodels.stats.proportion import proportions_ztest
 import joblib
 import gc
+from typing import List, Tuple
 
 
 def get_size_student(mean1, mean2, alpha, beta, sd=None):
@@ -186,7 +187,7 @@ class ABTest:
         result_norm['p_jarque_bera'] = p_jarque.T
         return result_norm
 
-    def student_multiple_test(self) -> tuple[pd.DataFrame, any]:
+    def student_multiple_test(self) -> Tuple[pd.DataFrame, any]:
         """
         Student test for independent two samples
         :return: pandas dataframe with results
@@ -230,7 +231,7 @@ class ABTest:
 
         return all_comparisons_student_df, winner_count_student
 
-    def mann_whitney_multiple_test(self) -> tuple[pd.DataFrame, any]:
+    def mann_whitney_multiple_test(self) -> Tuple[pd.DataFrame, any]:
         """
         Student test for independent two samples
         :return: pandas dataframe with results
@@ -265,7 +266,7 @@ class ABTest:
 
         return all_comparisons_mannwhitney_df, winner_count_mannwhitney
 
-    def bootstrap_multiple_test(self, n_boots: int) -> tuple[pd.DataFrame, any]:
+    def bootstrap_multiple_test(self, n_boots: int) -> Tuple[pd.DataFrame, any]:
         all_comparisons_bootstrap_df = pd.DataFrame(
             index=pd.MultiIndex.from_tuples(list(combinations(np.arange(self.data.shape[1]), 2)),
                                             names=['var1', 'var2']),
