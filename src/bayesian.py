@@ -156,6 +156,35 @@ def hdi_mc(x, interval_length=0.9) -> ndarray:
     return np.array([hdi_min, hdi_max])
 
 
+def effect_size(data: ndarray) -> pd.DataFrame:
+    """
+    Computing effect size for all combinations
+    """
+    all_comparisons_df = pd.DataFrame(
+        index=pd.MultiIndex.from_tuples(list(combinations(np.arange(data.shape[1]), 2)),
+                                        names=['var1', 'var2']),
+        columns=['n1', 'n2', 'p1', 'p2', 'var1', 'var2', 'effect_size'])
+    for index, row in all_comparisons_df.iterrows():
+        n1, n2, p1, p2 = data[:, index[0]].shape[0], data[:, index[1]].shape[0], \
+                         data[:, index[0]].mean(), data[:, index[1]].mean()
+        all_comparisons_df.loc[index, "n1"] = n1
+        all_comparisons_df.loc[index, "n2"] = n2
+        all_comparisons_df.loc[index, "p1"] = p1
+        all_comparisons_df.loc[index, "p2"] = p2
+        all_comparisons_df.loc[index, "var1"] = p1 * (1 - p1)
+        all_comparisons_df.loc[index, "var2"] = p2 * (1 - p2)
+        all_comparisons_df.loc[index, "effect_size"] = (p1 - p2) / np.sqrt(
+            (all_comparisons_df.loc[index, "var1"] * (n1 - 1) +
+             all_comparisons_df.loc[index, "var2"] * (n2 - 1)) / (n1 + n2 - 2)
+             )
+    return all_comparisons_df
+
+
+
+
+
+
+
 class BayesianConversionTest:
     def __init__(self, p_control_percent: float, mde_percent: float, criterion_dict: Dict,
                  share_observation_optimal_arms=1.0, alpha=0.05, beta=0.2):
