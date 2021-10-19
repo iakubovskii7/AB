@@ -58,42 +58,102 @@ def expected_loss(alphas, betas, size=int(1e6)):
     return expected_losses
 
 
-def calc_prob_between_sampling(alphas, betas, size=int(1e6)):
+def chance_to_beat_control(alphas: ndarray, betas: ndarray, size=int(1e6)) -> float:
     """
     Calculate probability superiority with sampling methods for beta distribution
     :param size: number of random values
-    :param alphas: alpha params for all variants
-    :param betas: beta params for all variants
+    :param alphas: alpha params for all variants, first element - control alpha
+    :param betas: beta params for all variants, first element - control beta
     :return: probability superiority for beta distribution
     """
     control_thetas = beta.rvs(alphas[0], betas[0], size=size)
     test_thetas = beta.rvs(alphas[1], betas[1], size=size)
-    ctbc = np.sum(test_thetas > control_thetas) / size  #  chance to beat control
+    ctbc = np.mean(test_thetas > control_thetas)[1]  #  chance to beat control
     return ctbc
 
 
-# def calc_prob_between_sampling_multiple(alphas, betas, size=int(1e6)):
-#     """
-#     Calculate expected losses for beta distribution
-#     :param size: number of random values
-#     :param alphas: alpha params for all variants (shape - number of variants)
-#     :param betas: beta params for all variants (shape - number of variants)
-#     :return: probability superiority for conversion tests
-#     """
-#     all_comparisons_df = pd.DataFrame(
-#         index=pd.MultiIndex.from_tuples(list(combinations(np.arange(alphas.shape[1]), 2)),
-#                                         names=['var1', 'var2']),
-#         columns=['statistic', 'p_value'])
-#     for index, row in all_comparisons_df.iterrows():
-#
-#         all_comparisons_df.loc[index, "prob_super"] =
-#     control_thetas = beta.rvs(alphas[0], betas[0], size=size)
-#     test_thetas = beta.rvs(alphas[1], betas[1], size=size)
-#     difference = test_thetas - control_thetas
-#     difference = np.where(difference < 0, 0, difference)
-#     # prob_super0 = np.count_nonzero(difference) / size  # probability superiority for
-#     expected_losses = (np.sum(difference) / size) * 100
-#     return expected_losses
+def chance_to_beat_all(alphas: ndarray, betas: ndarray, size=int(1e6)) -> ndarray:
+    """
+    Calculate chance to beat other variants
+    :param size: number of random values
+    :param alphas: alpha params for all variants - first variant we calculate
+    :param betas: beta params for all variants first variant we calculate
+    :return: probability superiority for conversion tests for first variant
+    """
+
+    result = []
+    for i in range(alphas.shape[0]):
+        target_variant = stats.beta(alphas[i], betas[i]).rvs(size=size)
+        distr_all = []
+        for j in range(alphas.shape[0]):
+            if j != i:
+                distr_all.append(stats.beta(alphas[j], betas[j]).rvs(size=size))
+
+        maxall = np.maximum.reduce(distr_all)
+        result.append((target_variant > maxall).mean())
+    return np.array(result)
+
+
+def expected_losses_all(alphas: ndarray, betas: ndarray, size=int(1e6)) -> ndarray:
+    """
+    Calculate chance to beat other variants
+    :param size: number of random values
+    :param alphas: alpha params for all variants - first variant we calculate
+    :param betas: beta params for all variants first variant we calculate
+    :return: probability superiority for conversion tests for first variant
+    """
+
+    result = []
+    for i in range(alphas.shape[0]):
+        target_variant = stats.beta(alphas[i], betas[i]).rvs(size=size)
+        distr_all = []
+        for j in range(alphas.shape[0]):
+            if j != i:
+                distr_all.append(stats.beta(alphas[j], betas[j]).rvs(size=size))
+
+        maxall = np.maximum.reduce(distr_all)
+        result.append(np.maximum(maxall - target_variant, 0).mean())
+    return np.array(result)
+
+
+def expected_related_losses_all(alphas: ndarray, betas: ndarray, size=int(1e6)) -> ndarray:
+    """
+    Calculate chance to beat other variants
+    :param size: number of random values
+    :param alphas: alpha params for all variants - first variant we calculate
+    :param betas: beta params for all variants first variant we calculate
+    :return: probability superiority for conversion tests for first variant
+    """
+
+    result = []
+    for i in range(alphas.shape[0]):
+        target_variant = stats.beta(alphas[i], betas[i]).rvs(size=size)
+        distr_all = []
+        for j in range(alphas.shape[0]):
+            if j != i:
+                distr_all.append(stats.beta(alphas[j], betas[j]).rvs(size=size))
+
+        maxall = np.maximum.reduce(distr_all)
+        result.append(((maxall - target_variant) / target_variant).mean())
+    return np.array(result)
+
+
+def hdi_mc(x, interval_length=0.9) -> ndarray:
+    """
+    Compute highest density credible intervals
+    :param x:  any distribution params or difference
+    :param interval_length: width for credible intervals
+    :return: HDI numpy array
+    """
+    n = len(x)
+    xsorted = np.sort(x)
+    n_included = int(np.ceil(interval_length * n))
+    n_ci = n - n_included
+    ci = xsorted[n_included:] - xsorted[:n_ci]
+    j = np.argmin(ci)
+    hdi_min = xsorted[j]
+    hdi_max = xsorted[j + n_included]
+    return np.array([hdi_min, hdi_max])
 
 
 class BayesianConversionTest:
