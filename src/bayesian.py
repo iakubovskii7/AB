@@ -138,9 +138,9 @@ def expected_related_losses_all(alphas: ndarray, betas: ndarray, size=int(1e6)) 
     return np.array(result)
 
 
-def hdi_mc(x, interval_length=0.9) -> ndarray:
+def hdi_mc(x, interval_length=0.95) -> ndarray:
     """
-    Compute highest density credible intervals
+    Compute highest density credible intervals for difference
     :param x:  any distribution params or difference
     :param interval_length: width for credible intervals
     :return: HDI numpy array
@@ -156,28 +156,50 @@ def hdi_mc(x, interval_length=0.9) -> ndarray:
     return np.array([hdi_min, hdi_max])
 
 
-def effect_size(data: ndarray) -> pd.DataFrame:
+def effect_size(alphas: ndarray, betas: ndarray) -> pd.DataFrame:
     """
     Computing effect size for all combinations
     """
     all_comparisons_df = pd.DataFrame(
-        index=pd.MultiIndex.from_tuples(list(combinations(np.arange(data.shape[1]), 2)),
+        index=pd.MultiIndex.from_tuples(list(combinations(np.arange(alphas.shape[0]), 2)),
                                         names=['var1', 'var2']),
-        columns=['n1', 'n2', 'p1', 'p2', 'var1', 'var2', 'effect_size'])
+        columns=['n1', 'n2', 'mu1', 'mu2', 'var1', 'var2', 'effect_size'])
     for index, row in all_comparisons_df.iterrows():
-        n1, n2, p1, p2 = data[:, index[0]].shape[0], data[:, index[1]].shape[0], \
-                         data[:, index[0]].mean(), data[:, index[1]].mean()
+        n1, n2 = alphas[index[0]] + betas[index[0]], alphas[index[1]] + betas[index[1]]
+        mu1 = alphas[index[0]] / (alphas[index[0]] + betas[index[0]])
+        mu2 = alphas[index[1]] / (alphas[index[1]] + betas[index[1]])
         all_comparisons_df.loc[index, "n1"] = n1
         all_comparisons_df.loc[index, "n2"] = n2
-        all_comparisons_df.loc[index, "p1"] = p1
-        all_comparisons_df.loc[index, "p2"] = p2
-        all_comparisons_df.loc[index, "var1"] = p1 * (1 - p1)
-        all_comparisons_df.loc[index, "var2"] = p2 * (1 - p2)
-        all_comparisons_df.loc[index, "effect_size"] = (p1 - p2) / np.sqrt(
+        all_comparisons_df.loc[index, "mu1"] = mu1
+        all_comparisons_df.loc[index, "mu2"] = mu2
+        all_comparisons_df.loc[index, "var1"] = mu1 * (1 - mu1)
+        all_comparisons_df.loc[index, "var2"] = mu2 * (1 - mu2)
+        all_comparisons_df.loc[index, "effect_size"] = (mu1 - mu2) / np.sqrt(
             (all_comparisons_df.loc[index, "var1"] * (n1 - 1) +
              all_comparisons_df.loc[index, "var2"] * (n2 - 1)) / (n1 + n2 - 2)
              )
     return all_comparisons_df
+
+
+def bayesian_metrics(alphas: ndarray, betas: ndarray, size=int(1e6)) -> Tuple:
+    effect_size_df = effect_size(alphas, betas)
+    expected_loss = expected_losses_all(alphas, betas)
+    expected_rel_loss = expected_related_losses_all(alphas, betas)
+    chance_to_beat_all_results = chance_to_beat_all(alphas, betas)
+    effect_size_df.loc[:, 'HDI'] = ''
+    for index, row in effect_size_df.iterrows():
+        beta1 = beta(alphas[index[0]], betas[index[0]]).rvs(size=size)
+        beta2 = beta(alphas[index[1]], betas[index[1]]).rvs(size=size)
+        effect_size_df.loc[index, "HDI"] = hdi_mc(beta1 - beta2)
+    return (chance_to_beat_all_results, expected_loss,
+            expected_rel_loss, effect_size_df)
+
+
+results = bayesian_metrics(np.array([100, 100, 100]), np.array([200, 280, 500]))
+
+
+
+
 
 
 
