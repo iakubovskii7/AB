@@ -140,16 +140,7 @@ def save_results_mab(p_control_percent, mde_percent, batch_size_share_mu,
 #                         method_update_params=method_update_params,
 #                         multiarmed=multi_armed)
 
-alphas = np.array([30, 25, 15])
-betas = np.array([100, 100, 300])
-chance_to_beat_all(alphas, betas)
-expected_losses_all(alphas, betas)
-expected_related_losses_all(alphas, betas)
-distr_diff = stats.beta(alphas[0], betas[0]).rvs(size=int(1e6), random_state=42) - \
-stats.beta(alphas[1], betas[1]).rvs(size=int(1e6), random_state=42)
-hdi_mc(distr_diff)
-dist = stats.gamma(4, 10).rvs(size=int(1e7))
-hdi_mc(dist)
+
 
 
 

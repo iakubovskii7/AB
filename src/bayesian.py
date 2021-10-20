@@ -138,15 +138,21 @@ def expected_related_losses_all(alphas: ndarray, betas: ndarray, size=int(1e6)) 
     return np.array(result)
 
 
-def hdi_mc(x, interval_length=0.95) -> ndarray:
+def hdi_difference(alphas: ndarray, betas: ndarray, interval_length=0.95,
+                   size=int(1e6)) -> ndarray:
     """
     Compute highest density credible intervals for difference
-    :param x:  any distribution params or difference
+    :param alphas:  alpha parameters for beta distribution
+    :param betas:  beta parameters for beta distribution
     :param interval_length: width for credible intervals
+    :param size: number of iterations
     :return: HDI numpy array
     """
-    n = len(x)
-    xsorted = np.sort(x)
+    beta1 = beta(alphas[0], betas[0]).rvs(size=size)
+    beta2 = beta(alphas[1], betas[1]).rvs(size=size)
+    difference = beta1 - beta2
+    n = len(difference)
+    xsorted = np.sort(difference)
     n_included = int(np.ceil(interval_length * n))
     n_ci = n - n_included
     ci = xsorted[n_included:] - xsorted[:n_ci]
@@ -186,25 +192,11 @@ def bayesian_metrics(alphas: ndarray, betas: ndarray, size=int(1e6)) -> Tuple:
     expected_loss = expected_losses_all(alphas, betas)
     expected_rel_loss = expected_related_losses_all(alphas, betas)
     chance_to_beat_all_results = chance_to_beat_all(alphas, betas)
-    effect_size_df.loc[:, 'HDI'] = ''
+    effect_size_df.loc[:, 'HDI_lift'] = ''
     for index, row in effect_size_df.iterrows():
-        beta1 = beta(alphas[index[0]], betas[index[0]]).rvs(size=size)
-        beta2 = beta(alphas[index[1]], betas[index[1]]).rvs(size=size)
-        effect_size_df.loc[index, "HDI"] = hdi_mc(beta1 - beta2)
+        effect_size_df.loc[index, "HDI_lift"] = hdi_mc((beta2 / beta1) - 1)
     return (chance_to_beat_all_results, expected_loss,
             expected_rel_loss, effect_size_df)
-
-
-results = bayesian_metrics(np.array([100, 100, 100]), np.array([200, 280, 500]))
-
-
-
-
-
-
-
-
-
 
 
 class BayesianConversionTest:
