@@ -150,7 +150,7 @@ def hdi_difference(alphas: ndarray, betas: ndarray, interval_length=0.95,
     """
     beta1 = beta(alphas[0], betas[0]).rvs(size=size)
     beta2 = beta(alphas[1], betas[1]).rvs(size=size)
-    difference = beta1 - beta2
+    difference = (beta1 / beta2) - 1
     n = len(difference)
     xsorted = np.sort(difference)
     n_included = int(np.ceil(interval_length * n))
@@ -194,7 +194,7 @@ def bayesian_metrics(alphas: ndarray, betas: ndarray, size=int(1e6)) -> Tuple:
     chance_to_beat_all_results = chance_to_beat_all(alphas, betas)
     effect_size_df.loc[:, 'HDI_lift'] = ''
     for index, row in effect_size_df.iterrows():
-        effect_size_df.loc[index, "HDI_lift"] = hdi_mc((beta2 / beta1) - 1)
+        effect_size_df.loc[index, "HDI_lift"] = hdi_difference(alphas, betas)
     return (chance_to_beat_all_results, expected_loss,
             expected_rel_loss, effect_size_df)
 

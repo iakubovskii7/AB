@@ -1,6 +1,6 @@
 import re
 from collections import Counter, defaultdict
-
+from bayesian import *
 from random import choices
 from typing import List, Dict, Tuple
 from scipy.stats import beta
@@ -95,9 +95,6 @@ def ucb_bootstrapped(revenue_dict: Dict[str, np.array],
     return [*revenue_dict.keys()][n_action]
 
 
-
-
-
 class BatchThompson:
     def __init__(self, p_control_percent: float, mde_percent: float, batch_size_share_mu: float, criterion_dict: Dict,
                  method_update_params: str, multiarmed: bool = False):
@@ -145,7 +142,7 @@ class BatchThompson:
 
     def update_prob_super(self, method_calc):
         if method_calc == 'integrating':
-            prob_superiority = calc_prob_between(self.alphas, self.betas)
+            prob_superiority = chance_to_beat_control(self.alphas, self.betas)
             self.probability_superiority_array = np.array([prob_superiority, 1 - prob_superiority])
         self.expected_losses = expected_loss(self.alphas, self.betas)
 
