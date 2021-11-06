@@ -60,5 +60,6 @@ coverage.xml
 # pycache
 __pycache__
 
-
+Pile_AB_Carpov.ipynb
+Experiment results/*
 
