@@ -1,6 +1,6 @@
 import re
 from collections import Counter, defaultdict
-from bayesian import *
+from src.bayesian import *
 from random import choices
 from typing import List, Dict, Tuple
 from scipy.stats import beta

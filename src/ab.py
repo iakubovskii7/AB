@@ -17,17 +17,23 @@ import gc
 from typing import List, Tuple
 
 
-def get_size_student(mean1, mean2, alpha, beta, sd=None):
+def cohen_size_proportion(p1, p2):
+    return np.abs(2 * np.arcsin(np.sqrt(p1)) - 2 * np.arcsin(np.sqrt(p2)))
+
+
+def cohen_size_arpu(mean1, mean2, sd):
+    return np.abs(mean1 - mean2) / sd
+
+
+def get_size_student(mean1, mean2, alpha=0.05, beta=0.2, sd_coef=1):
+    sd = mean1 * sd_coef
     z_alpha = stats.norm.ppf(1 - alpha / 2)
     z_beta = stats.norm.ppf(1 - beta)
-    if sd != None:
-        n = (np.sqrt(2) * sd * (z_beta + z_alpha) / (mean1 - mean2)) ** 2
-    else:
-        n = "kek"
-    return np.uint16(n)
+    n = (np.sqrt(2) * sd * (z_beta + z_alpha) / (mean1 - mean2)) ** 2
+    return np.uint32(n)
 
 
-def get_size_zratio(p_control_percent, mde_percent, alpha, beta, type="equivalence"):
+def get_size_zratio(p_control_percent, mde_percent, alpha=0.05, beta=0.2, type="equivalence"):
     """
     :param p_control_percent: conversion rate in percent (10 means 10% conversion)
     :param mde_percent: mde in percent
@@ -211,9 +217,9 @@ class ABTest:
         uservar = 'equal' if self.equal_var == True else 'unequal'
         for index, row in all_comparisons_student_df.iterrows():
             cm = sms.CompareMeans(sms.DescrStatsW(self.data[:, index[0]]), sms.DescrStatsW(self.data[:, index[1]]))
-            all_comparisons_student_df.loc[index, "lower"] = \
+            all_comparisons_student_df.loc[index, "ci_lower"] = \
             cm.tconfint_diff(usevar=uservar, alpha=row['alpha_correction'])[0]
-            all_comparisons_student_df.loc[index, "upper"] = \
+            all_comparisons_student_df.loc[index, "ci_upper"] = \
             cm.tconfint_diff(usevar=uservar, alpha=row['alpha_correction'])[1]
 
         # Determine winners
@@ -290,14 +296,14 @@ class ABTest:
             all_comparisons_bootstrap_df.at[index, 'bs_confident_interval'] = get_bs_confidence_interval(
                 all_comparisons_bootstrap_df.loc[index, "bs_difference_means"],
                 alpha=all_comparisons_bootstrap_df.loc[index, 'alpha_correction'])
-        all_comparisons_bootstrap_df["lower"] = all_comparisons_bootstrap_df.loc[:, "bs_confident_interval"].apply(
+        all_comparisons_bootstrap_df["ci_lower"] = all_comparisons_bootstrap_df.loc[:, "bs_confident_interval"].apply(
             lambda x: x[0])
-        all_comparisons_bootstrap_df["upper"] = all_comparisons_bootstrap_df.loc[:, "bs_confident_interval"].apply(
+        all_comparisons_bootstrap_df["ci_upper"] = all_comparisons_bootstrap_df.loc[:, "bs_confident_interval"].apply(
             lambda x: x[1])
 
         all_comparisons_bootstrap_df['stat_significance'] = np.where(
-            (all_comparisons_bootstrap_df['lower'] > 0) |
-            (all_comparisons_bootstrap_df['upper'] < 0), True, False)
+            (all_comparisons_bootstrap_df['ci_lower'] > 0) |
+            (all_comparisons_bootstrap_df['ci_upper'] < 0), True, False)
 
         # Determine winners
         for index, row in all_comparisons_bootstrap_df.iterrows():
@@ -313,30 +319,30 @@ class ABTest:
 
         return all_comparisons_bootstrap_df, winner_count_bootstrap
 
-    def start_experiment(self):
-        global winner_bootstrap_idx, winner_mannwhitney_idx, winner_student_idx
+    def start_experiment(self, n_boots=10000):
         all_comparisons_student_df, winner_count_student = self.student_multiple_test()
         all_comparisons_mannwhitney_df, winner_count_mannwhitney = self.mann_whitney_multiple_test()
-        all_comparisons_bootstrap_df, winner_count_bootstrap = self.bootstrap_multiple_test()
-        if self.data.shape[1] == 2:
-            winner_student_idx = all_comparisons_student_df['winner'].values[0]
-            winner_mannwhitney_idx = all_comparisons_mannwhitney_df['winner'].values[0]
-            winner_bootstrap_idx = all_comparisons_bootstrap_df['winner'].values[0]
-        # TODO: add case for 3+ variants
-        return winner_student_idx, winner_mannwhitney_idx, winner_bootstrap_idx
+        all_comparisons_bootstrap_df, winner_count_bootstrap = self.bootstrap_multiple_test(n_boots=n_boots)
+        result_df = all_comparisons_student_df.join(all_comparisons_bootstrap_df,
+                                                    lsuffix='_Student', rsuffix='_bootstrap').join(
+            all_comparisons_mannwhitney_df, rsuffix='_Mann_Whitney'
+        )
+        return result_df.T
 
 
 class ABConversionTest:
-    def __init__(self, p_control: float, mde: float, alpha=0.05, beta=0.2):
-        self.p_array_mu = np.array([p_control, p_control - mde])
+    def __init__(self, p_control: float, mde: float, alpha: float = 0.05, beta: float = 0.2):
+        self.p_control = p_control
+        self.mde = mde
+        self.p_array_mu = np.array([p_control / 100, self.p_control / 100 + (self.p_control * self.mde) / 10000])
         self.n_arms = self.p_array_mu.shape[0]
         self.alpha, self.beta = alpha, beta
-        self.n_obs_every_arm = get_size_zratio(self.p_array_mu[0], mde,
+        self.n_obs_every_arm = get_size_zratio(self.p_control, mde,
                                                alpha=self.alpha, beta=self.beta)
         self.__all_comparisons_df = pd.DataFrame(
             index=pd.MultiIndex.from_tuples(list(combinations(np.arange(self.n_arms), 2)),
                                             names=['var1', 'var2']),
-            columns=['n_observations', 'diff_mean', 'z_statistic', 'p_value_zstat', 'se_zstat',
+            columns=['n_observations', 'mu1', 'mu2', 'diff_mean', 'z_statistic', 'p_value_zstat', 'se_zstat',
                      'bs_difference_means', 'p_value_bs', 'bs_confident_interval',
                      'winner_z_test', 'winner_bootstrap'])
 
@@ -345,6 +351,8 @@ class ABConversionTest:
         data = np.random.binomial(n=[1] * self.n_arms, p=self.p_array_mu, size=(self.n_obs_every_arm, self.n_arms))
         for index, row in self.__all_comparisons_df.iterrows():
             data1, data2 = data[:, index[0]], data[:, index[1]]
+            self.__all_comparisons_df.loc[index, "mu1"] =  data1.mean()
+            self.__all_comparisons_df.loc[index, "mu2"] =  data2.mean()
             self.__all_comparisons_df.loc[index, "diff_mean"] = data1.mean() - data2.mean()
             z_stat_ratio, p_value_ztest = proportions_ztest([data1.sum(), data2.sum()],
                                                             [data.shape[0]] * self.n_arms)
@@ -408,7 +416,7 @@ class ABConversionTest:
                 (row['diff_mean'] < 0), str(index[1]), np.where(
                     row['stat_significance_bs'] is True, str(index[0]), "not_winner")).item()
 
-        self.__all_comparisons_df['n_observation'] = self.n_obs_every_arm
+        self.__all_comparisons_df['n_observations'] = self.n_obs_every_arm
         winner_df = {"zratio": self.__all_comparisons_df['winner_z_test'].values[0],
                      "bootstrap": self.__all_comparisons_df['winner_bootstrap'].values[0]}
         intermediate_df = self.__all_comparisons_df.copy()
@@ -432,4 +440,14 @@ def plot_alpha_power(data: np.ndarray, label: str, ax: Axes,
                    linestyle='solid',
                    label=label,
                    linewidth=linewidth)
+
+
+def create_confidence_plot(df_results, lower, upper):
+    for lower, upper, y in zip(df_results[lower],df_results[upper],range(len(df_results))):
+        plt.plot((lower,upper),(y,y),'ro-');
+    plt.yticks(range(len(df_results)),list(df_results.index));
+    plt.axvline(x=0, color='b', ls='--');
+
+
+
 
