@@ -10,6 +10,7 @@ import pymc3.math as pmm
 
 from scipy.stats import bernoulli, expon
 
+# PYMC3 ######################################################################
 @dataclass
 class BetaPrior:
     alpha: float
@@ -19,7 +20,7 @@ class BinomialData:
     trials: int
     successes: int
 
-RANDOM_SEED = 4000
+RANDOM_SEED = 0
 rng = np.random.default_rng(RANDOM_SEED)
 
 
@@ -82,4 +83,31 @@ def run_scenario_twovariant(
     # axs[1].axvline(x=0, color="red")
     fig.suptitle("B vs. A Rel Uplift")
     return data
+
+# CPRIOR ############################################
+from cprior.models import BernoulliModel, BernoulliMVTest, BernoulliABTest
+from cprior.experiment.base import Experiment
+
+modelA = BernoulliModel(name="control", alpha=1, beta=1)
+modelB = BernoulliModel(name="variation", alpha=1, beta=1)
+
+mvtest = BernoulliMVTest({"A": modelA, "B": modelB})
+
+
+def bayes_conversion_stop_experiment(min_n_samples, max_n_samples, p1, p2,
+                                     criterion, criterion_value,
+                                     seed):
+    experiment = Experiment(name="CTR", test=mvtest,
+                            stopping_rule=criterion,
+                            epsilon=criterion_value, min_n_samples=min_n_samples, max_n_samples=max_n_samples)
+
+    with experiment as e:
+        while not e.termination:
+            np.random.seed(seed)
+            data_A = np.random.binomial(1, p=p1, size=np.random.randint(100, 200))
+            data_B = np.random.binomial(1, p=p2, size=np.random.randint(100, 200))
+
+            e.run_update(**{"A": data_A, "B": data_B})
+        # print(e.termination, e.status)
+    return e
 

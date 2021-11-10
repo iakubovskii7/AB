@@ -283,3 +283,18 @@ class BayesianConversionTest:
 
 # expected_loss([65, 32], [1263 - 65, 1084 - 32]) * 100
 # calc_prob_between([65, 32], [1263 - 65, 1084 - 32])
+
+
+def get_bayes_metrics(i, p1, p2, size):
+    np.random.seed(i)
+    data = np.random.binomial([1, 1], [p1, p2], size=(size, 2))
+    alphas, betas = data.sum(axis=0), data.shape[0] - data.sum(axis=0)
+    results = bayesian_metrics(alphas, betas)
+    prob_super_test = results[0][1]
+    expected_losses_test = results[1][1]
+    expected_related_losses_test = results[2][1]
+    effect_size_test = results[3]['effect_size'].values[0]
+    left_hdi = results[3]['HDI_lift'].values[0][0]
+    right_hdi = results[3]['HDI_lift'].values[0][1]
+    return (prob_super_test, expected_losses_test, expected_related_losses_test,
+            effect_size_test, left_hdi, right_hdi)
