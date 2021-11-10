@@ -70,6 +70,7 @@ def clickhouse(query, clickhouse_query) -> pd.DataFrame:
         result_df[col_data['name']] = result_df[col_data['name']].apply(col_type_converter)
     return result_df
 
+
 def clickhouse_transform_pandas(result) -> pd.DataFrame:
     """
     Process query pandas to dataframe
@@ -90,9 +91,13 @@ def clickhouse_transform_pandas(result) -> pd.DataFrame:
     return result_df
 
 # ab_test_df = pd.read_csv("Data/Sweet_sex_datimg_AB.csv")
+
+
 def write_json(data, path):
     with open(path, "w") as f:
         json.dump(data, f)
+
+
 def mergeDict(dict1, dict2):
     ''' Merge dictionaries and keep values of common keys in list'''
     dict3 = {**dict1, **dict2}
@@ -100,7 +105,5 @@ def mergeDict(dict1, dict2):
         if key in dict1 and key in dict2:
             dict3[key] = [value , dict1[key]]
     return dict3
-
-
 
 
