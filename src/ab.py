@@ -351,8 +351,8 @@ class ABConversionTest:
         data = np.random.binomial(n=[1] * self.n_arms, p=self.p_array_mu, size=(self.n_obs_every_arm, self.n_arms))
         for index, row in self.__all_comparisons_df.iterrows():
             data1, data2 = data[:, index[0]], data[:, index[1]]
-            self.__all_comparisons_df.loc[index, "mu1"] =  data1.mean()
-            self.__all_comparisons_df.loc[index, "mu2"] =  data2.mean()
+            self.__all_comparisons_df.loc[index, "mu1"] = data1.mean()
+            self.__all_comparisons_df.loc[index, "mu2"] = data2.mean()
             self.__all_comparisons_df.loc[index, "diff_mean"] = data1.mean() - data2.mean()
             z_stat_ratio, p_value_ztest = proportions_ztest([data1.sum(), data2.sum()],
                                                             [data.shape[0]] * self.n_arms)
