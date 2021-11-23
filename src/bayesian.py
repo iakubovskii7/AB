@@ -285,8 +285,8 @@ class BayesianConversionTest:
 # calc_prob_between([65, 32], [1263 - 65, 1084 - 32])
 
 
-def get_bayes_metrics(i, p1, p2, size):
-    np.random.seed(i)
+def get_bayes_metrics(seed, p1, p2, size):
+    np.random.seed(seed)
     data = np.random.binomial([1, 1], [p1, p2], size=(size, 2))
     alphas, betas = data.sum(axis=0), data.shape[0] - data.sum(axis=0)
     results = bayesian_metrics(alphas, betas)
