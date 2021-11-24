@@ -34,7 +34,6 @@ ipython_config.py
 # Dev and data folders on working branch
 dev/*
 data/*
-notebooks/*
 
 # Metadata
 .DS_Store
