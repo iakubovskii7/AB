@@ -4,7 +4,7 @@ import arviz as az
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
-from scipy.stats import beta
+from scipy.stats import beta, gamma
 import numpy as np
 from src.ab import *
 from typing import Dict
@@ -13,6 +13,7 @@ from numpy import ndarray
 from numba import jit
 from math import lgamma
 
+# Conversions #########################################################
 # Функции для вычисления вероятности превосходства по точной формуле
 @jit
 def h(a, b, c, d):
@@ -58,7 +59,7 @@ def expected_loss(alphas, betas, size=int(1e6)):
     return expected_losses
 
 
-def chance_to_beat_control(alphas: ndarray, betas: ndarray, size=int(1e6)) -> float:
+def chance_to_beat_control(alphas: ndarray, betas: ndarray, size=int(1e6)) -> ndarray:
     """
     Calculate probability superiority with sampling methods for beta distribution
     :param size: number of random values
@@ -68,7 +69,7 @@ def chance_to_beat_control(alphas: ndarray, betas: ndarray, size=int(1e6)) -> fl
     """
     control_thetas = beta.rvs(alphas[0], betas[0], size=size)
     test_thetas = beta.rvs(alphas[1], betas[1], size=size)
-    ctbc = np.mean(test_thetas > control_thetas)[1]  #  chance to beat control
+    ctbc = np.mean(test_thetas > control_thetas)  #  chance to beat control
     return ctbc
 
 
@@ -298,3 +299,29 @@ def get_bayes_metrics(seed, p1, p2, size):
     right_hdi = results[3]['HDI_lift'].values[0][1]
     return (prob_super_test, expected_losses_test, expected_related_losses_test,
             effect_size_test, left_hdi, right_hdi)
+
+
+# ARPU ###########################################################################
+def chance_to_beat_control_arpu(alphas: ndarray, betas: ndarray, thetas_gamma: ndarray,
+                                size=int(1e6)) -> Tuple[ndarray, ndarray, ndarray]:
+    """
+    Calculate probability superiority with sampling methods for beta distribution
+    :param size: number of random values
+    :param alphas: alpha params for all variants, first element - control alpha
+    :param betas: beta params for all variants, first element - control beta
+    :param thetas_gamma: theta params for all variants (param for gamma distribution), first element - control theta
+    :return: probability superiority for conversion, arppu, arpu
+    """
+    # Conversions
+    control_prob_conv = beta.rvs(alphas[0], betas[0], size=size)
+    test_prob_conv = beta.rvs(alphas[1], betas[1], size=size)
+    ctbc_conv = np.mean(test_prob_conv > control_prob_conv)  # chance to beat control conversion
+
+    # ARPPU
+    control_arppu = 1 / np.random.gamma(alphas[0], thetas_gamma[0], size=size)
+    test_arppu = 1 / np.random.gamma(alphas[1], thetas_gamma[1], size=size)
+    ctbc_arppu = np.mean(test_arppu > control_arppu)  # chance to beat control ARPPU
+
+    # ARPU
+    ctbc_arpu = np.mean(test_prob_conv * test_arppu > control_prob_conv * control_arppu)  # chance to beat control ARPU
+    return ctbc_conv, ctbc_arppu, ctbc_arpu

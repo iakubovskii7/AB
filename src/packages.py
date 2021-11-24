@@ -15,10 +15,23 @@ from scipy.stats import bernoulli, expon
 class BetaPrior:
     alpha: float
     beta: float
+
 @dataclass
 class BinomialData:
     trials: int
     successes: int
+
+@dataclass
+class GammaPrior:
+    alpha: float
+    beta: float
+
+@dataclass
+class RevenueData:
+    visitors: int
+    purchased: int
+    total_revenue: float
+
 
 RANDOM_SEED = 0
 rng = np.random.default_rng(RANDOM_SEED)
@@ -35,6 +48,73 @@ class ConversionModelTwoVariant:
             p = pm.Beta("p", alpha=self.priors.alpha, beta=self.priors.beta, shape=2)
             obs = pm.Binomial("y", n=trials, p=p, shape=2, observed=successes)
             reluplift = pm.Deterministic("reluplift_b", p[1] / p[0] - 1)
+        return model
+
+
+class RevenueModel:
+    def __init__(self, conversion_rate_prior: BetaPrior, mean_purchase_prior: GammaPrior):
+        self.conversion_rate_prior = conversion_rate_prior
+        self.mean_purchase_prior = mean_purchase_prior
+
+    def create_model(self, data: List[RevenueData], comparison_method: str) -> pm.Model:
+        num_variants = len(data)
+        visitors = [d.visitors for d in data]
+        purchased = [d.purchased for d in data]
+        total_revenue = [d.total_revenue for d in data]
+
+        with pm.Model() as model:
+            theta = pm.Beta(
+                "theta",
+                alpha=self.conversion_rate_prior.alpha,
+                beta=self.conversion_rate_prior.beta,
+                shape=num_variants,
+            )
+            lam = pm.Gamma(
+                "lam",
+                alpha=self.mean_purchase_prior.alpha,
+                beta=self.mean_purchase_prior.beta,
+                shape=num_variants,
+            )
+            converted = pm.Binomial(
+                "converted", n=visitors, p=theta, observed=purchased, shape=num_variants
+            )
+            revenue = pm.Gamma(
+                "revenue", alpha=purchased, beta=lam, observed=total_revenue, shape=num_variants
+            )
+            revenue_per_visitor = pm.Deterministic("revenue_per_visitor", theta * (1 / lam))
+            theta_reluplift = []
+            reciprocal_lam_reluplift = []
+            reluplift = []
+            for i in range(num_variants):
+                if comparison_method == "compare_to_control":
+                    comparison_theta = theta[0]
+                    comparison_lam = 1 / lam[0]
+                    comparison_rpv = revenue_per_visitor[0]
+                elif comparison_method == "best_of_rest":
+                    others_theta = [theta[j] for j in range(num_variants) if j != i]
+                    others_lam = [1 / lam[j] for j in range(num_variants) if j != i]
+                    others_rpv = [revenue_per_visitor[j] for j in range(num_variants) if j != i]
+                    if len(others_rpv) > 1:
+                        comparison_theta = pmm.maximum(*others_theta)
+                        comparison_lam = pmm.maximum(*others_lam)
+                        comparison_rpv = pmm.maximum(*others_rpv)
+                    else:
+                        comparison_theta = others_theta[0]
+                        comparison_lam = others_lam[0]
+                        comparison_rpv = others_rpv[0]
+                else:
+                    raise ValueError(f"comparison method {comparison_method} not recognised.")
+                theta_reluplift.append(
+                    pm.Deterministic(f"theta_reluplift_{i}", theta[i] / comparison_theta - 1)
+                )
+                reciprocal_lam_reluplift.append(
+                    pm.Deterministic(
+                        f"reciprocal_lam_reluplift_{i}", (1 / lam[i]) / comparison_lam - 1
+                    )
+                )
+                reluplift.append(
+                    pm.Deterministic(f"reluplift_{i}", revenue_per_visitor[i] / comparison_rpv - 1)
+                )
         return model
 
 
@@ -83,6 +163,66 @@ def run_scenario_twovariant(
     # axs[1].axvline(x=0, color="red")
     fig.suptitle("B vs. A Rel Uplift")
     return data
+
+
+def generate_revenue_data(
+    variants: List[str],
+    true_conversion_rates: List[float],
+    true_mean_purchase: List[float],
+    samples_per_variant: int,
+) -> pd.DataFrame:
+    converted = {}
+    mean_purchase = {}
+    for variant, p, mp in zip(variants, true_conversion_rates, true_mean_purchase):
+        converted[variant] = bernoulli.rvs(p, size=samples_per_variant)
+        mean_purchase[variant] = expon.rvs(scale=mp, size=samples_per_variant)
+    converted = pd.DataFrame(converted)
+    mean_purchase = pd.DataFrame(mean_purchase)
+    revenue = converted * mean_purchase
+    agg = pd.concat(
+        [
+            converted.aggregate(["count", "sum"]).rename(
+                index={"count": "visitors", "sum": "purchased"}
+            ),
+            revenue.aggregate(["sum"]).rename(index={"sum": "total_revenue"}),
+        ]
+    )
+    return agg
+
+
+def run_scenario_value(
+    variants: List[str],
+    true_conversion_rates: List[float],
+    true_mean_purchase: List[float],
+    samples_per_variant: int,
+    conversion_rate_prior: BetaPrior,
+    mean_purchase_prior: GammaPrior,
+    comparison_method: str,
+) -> az.InferenceData:
+    generated = generate_revenue_data(
+        variants, true_conversion_rates, true_mean_purchase, samples_per_variant
+    )
+    data = [RevenueData(**generated[v].to_dict()) for v in variants]
+    with RevenueModel(conversion_rate_prior, mean_purchase_prior).create_model(
+        data, comparison_method
+    ):
+        trace = pm.sample(draws=5000, return_inferencedata=True, chains=2, cores=1)
+
+    n_plots = len(variants)
+    fig, axs = plt.subplots(nrows=n_plots, ncols=1, figsize=(3 * n_plots, 7), sharex=True)
+    for i, variant in enumerate(variants):
+        if i == 0 and comparison_method == "compare_to_control":
+            axs[i].set_yticks([])
+        else:
+            az.plot_posterior(
+                trace.posterior[f"reluplift_{i}"], textsize=10, ax=axs[i], kind="hist"
+            )
+        true_rpv = true_conversion_rates[i] * true_mean_purchase[i]
+        axs[i].set_title(f"Rel Uplift {variant}, True RPV = {true_rpv:.2f}", fontsize=10)
+        axs[i].axvline(x=0, color="red")
+    fig.suptitle(f"Method {comparison_method}, {conversion_rate_prior}, {mean_purchase_prior}")
+
+    return trace
 
 # CPRIOR ############################################
 from cprior.models import BernoulliModel, BernoulliMVTest, BernoulliABTest
