@@ -1,6 +1,7 @@
 from itertools import combinations
 import statsmodels.stats.api as sms
 import numpy as np
+from numpy import ndarray
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
@@ -152,7 +153,7 @@ def get_bs_confidence_interval(data, alpha=0.05):
     return quantile_array
 
 
-def create_confidence_plot(df_results, directory="Plot/ABClassic"):
+def save_confidence_plot(df_results, directory="Plot/ABClassic"):
 
     for lower, upper, y in zip(df_results['lower'], df_results['upper'], range(len(df_results))):
         plt.plot((lower, upper), (y, y), 'ro-', color='orange');
@@ -330,7 +331,7 @@ class ABTest:
         return result_df.T
 
 
-class ABConversionTest:
+class ABConversionExperimentTest:
     def __init__(self, p_control: float, mde: float, alpha: float = 0.05, beta: float = 0.2):
         self.p_control = p_control
         self.mde = mde
@@ -388,7 +389,7 @@ class ABConversionTest:
         self.__all_comparisons_df['alpha_correction_bs'] = (self.__all_comparisons_df['i_bootstrap'] * self.alpha) / \
                                                                 self.__all_comparisons_df.shape[0]
 
-        # Create confident intervals for difference with correction significance level
+        # Create confidence intervals for difference with correction significance level
         for index, row in self.__all_comparisons_df.iterrows():
             self.__all_comparisons_df.at[index, 'bs_confident_interval'] = get_bs_confidence_interval(
                 self.__all_comparisons_df.loc[index, "bs_difference_means"],
@@ -424,6 +425,96 @@ class ABConversionTest:
         return winner_df, intermediate_df.T
 
 
+class ABConversionTest:
+    def __init__(self, alpha: float = 0.05, beta: float = 0.2, n_boots: float = 10000):
+        self.alpha, self.beta = alpha, beta
+        self.n_boots = n_boots
+        self.__all_comparisons_df = pd.DataFrame()
+
+    def evaluate(self, data: ndarray):
+        n_obs_every_arm = data.shape[0]
+        n_arms = data.shape[1]
+        self.__all_comparisons_df = pd.DataFrame(
+            index=pd.MultiIndex.from_tuples(list(combinations(np.arange(n_arms), 2)),
+                                            names=['var1', 'var2']),
+            columns=['n_observations', 'mu1', 'mu2', 'diff_mean', 'z_statistic', 'p_value_zstat', 'se_zstat',
+                     'bs_difference_means', 'p_value_bs', 'bs_confident_interval',
+                     'winner_z_test', 'winner_bootstrap'])
+        for index, row in self.__all_comparisons_df.iterrows():
+            data1, data2 = data[:, index[0]], data[:, index[1]]
+            self.__all_comparisons_df.loc[index, "mu1"] = data1.mean()
+            self.__all_comparisons_df.loc[index, "mu2"] = data2.mean()
+            self.__all_comparisons_df.loc[index, "diff_mean"] = data1.mean() - data2.mean()
+            z_stat_ratio, p_value_ztest = proportions_ztest([data1.sum(), data2.sum()],
+                                                            [np.count_nonzero(data1), np.count_nonzero(data2)])
+
+            self.__all_comparisons_df.loc[index, "z_statistic"] = z_stat_ratio
+            self.__all_comparisons_df.loc[index, "p_value_zstat"] = p_value_ztest
+            self.__all_comparisons_df.loc[index, "se_zstat"] = np.sqrt(
+                (data1.mean() * (1 - data1.mean()) + data2.mean() * (1 - data2.mean())) / n_obs_every_arm)
+            data1_bs_sample_means = bootstrap_jit_parallel(data1, n_boots=self.n_boots)
+            data2_bs_sample_means = bootstrap_jit_parallel(data2, n_boots=self.n_boots)
+            difference_bs_means = data1_bs_sample_means - data2_bs_sample_means
+            self.__all_comparisons_df.at[index, "bs_difference_means"] = difference_bs_means
+            self.__all_comparisons_df.loc[index, "p_value_bs"] = 2 * np.min([np.sum(difference_bs_means < 0) / self.n_boots,
+                                                                             1 - np.sum(difference_bs_means < 0) / self.n_boots])
+        # Sort different ways
+        # 1 way - z-test
+        self.__all_comparisons_df.sort_values("p_value_zstat", inplace=True)
+        self.__all_comparisons_df['i_ztest'] = np.arange(self.__all_comparisons_df.shape[0]) + 1
+        self.__all_comparisons_df['alpha_correction_zstat'] = (self.__all_comparisons_df['i_ztest'] * self.alpha) / \
+                                                               self.__all_comparisons_df.shape[0]
+        self.__all_comparisons_df['stat_significance_z_test'] = np.where(self.__all_comparisons_df['p_value_zstat'] >
+                                                                         self.__all_comparisons_df['alpha_correction_zstat'],
+                                                                         False, True)
+        self.__all_comparisons_df['z_crit_alpha'] = stats.norm.ppf(1 - self.__all_comparisons_df['alpha_correction_zstat'] / 2)
+        self.__all_comparisons_df['ci_lower_ztest'] = self.__all_comparisons_df.loc[index, "diff_mean"] - \
+                                                      self.__all_comparisons_df['z_crit_alpha'] * self.__all_comparisons_df.loc[index, "se_zstat"]
+        self.__all_comparisons_df['ci_upper_ztest'] = self.__all_comparisons_df.loc[index, "diff_mean"] + \
+                                                      self.__all_comparisons_df['z_crit_alpha'] * self.__all_comparisons_df.loc[index, "se_zstat"]
+
+        # 2 way - bootstrap
+        self.__all_comparisons_df.sort_values(['p_value_bs'], inplace=True)
+        self.__all_comparisons_df['i_bootstrap'] = np.arange(self.__all_comparisons_df.shape[0]) + 1
+        self.__all_comparisons_df['alpha_correction_bs'] = (self.__all_comparisons_df['i_bootstrap'] * self.alpha) / \
+                                                                self.__all_comparisons_df.shape[0]
+
+        # Create confidence intervals for difference with correction significance level
+        for index, row in self.__all_comparisons_df.iterrows():
+            self.__all_comparisons_df.at[index, 'bs_confident_interval'] = get_bs_confidence_interval(
+                self.__all_comparisons_df.loc[index, "bs_difference_means"],
+                alpha=self.__all_comparisons_df.loc[index, 'alpha_correction_bs'])
+        self.__all_comparisons_df["ci_lower_bs"] = self.__all_comparisons_df.loc[:, "bs_confident_interval"].\
+            apply(lambda x: x[0])
+        self.__all_comparisons_df["ci_upper_bs"] = self.__all_comparisons_df.loc[:, "bs_confident_interval"].\
+            apply(lambda x: x[1])
+
+        self.__all_comparisons_df['stat_significance_bs'] = np.where(
+            (self.__all_comparisons_df['ci_lower_bs'] > 0) |
+            (self.__all_comparisons_df['ci_upper_bs'] < 0), True, False)
+
+        # Determine winners
+        for index, row in self.__all_comparisons_df.iterrows():
+            self.__all_comparisons_df.loc[index, "winner_z_test"] = np.where(
+                (row['stat_significance_z_test'] is True) &
+                (row['diff_mean'] < 0), str(index[1]), np.where(
+                    row['stat_significance_z_test'] is True, str(index[0]), "not_winner")).item()
+        # winner_count_bootstrap = self.__all_comparisons_df['winner'].value_counts()
+
+        for index, row in self.__all_comparisons_df.iterrows():
+            self.__all_comparisons_df.loc[index, "winner_bootstrap"] = np.where(
+                (row['stat_significance_bs'] is True) &
+                (row['diff_mean'] < 0), str(index[1]), np.where(
+                    row['stat_significance_bs'] is True, str(index[0]), "not_winner")).item()
+
+        self.__all_comparisons_df['n_observations'] = n_obs_every_arm
+        winner_df = {"zratio": self.__all_comparisons_df['winner_z_test'].values[0],
+                     "bootstrap": self.__all_comparisons_df['winner_bootstrap'].values[0]}
+        intermediate_df = self.__all_comparisons_df.copy()
+        gc.collect()
+        return winner_df, intermediate_df.T
+
+
 def plot_alpha_power(data: np.ndarray, label: str, ax: Axes,
                      color: str = sns.color_palette("deep")[0],
                      linewidth=3):
@@ -442,10 +533,10 @@ def plot_alpha_power(data: np.ndarray, label: str, ax: Axes,
                    linewidth=linewidth)
 
 
-def create_confidence_plot(df_results, lower, upper):
-    for lower, upper, y in zip(df_results[lower],df_results[upper],range(len(df_results))):
-        plt.plot((lower,upper),(y,y),'ro-');
-    plt.yticks(range(len(df_results)),list(df_results.index));
+def create_confidence_plot(df_results, lower, mean, upper):
+    for lower, mean, upper, y in zip(df_results[lower], df_results[mean], df_results[upper], range(len(df_results))):
+        plt.plot((lower, mean, upper), (y, y, y), 'ro-');
+    plt.yticks(range(len(df_results)), list(df_results.index));
     plt.axvline(x=0, color='b', ls='--');
 
 
